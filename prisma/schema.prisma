@@ -1,0 +1,242 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AccountRole {
+  ADMIN @map("admin")
+
+  @@map("account_role")
+}
+
+enum EntityType {
+  INDIVIDUAL @map("individual")
+
+  @@map("entity_type")
+}
+
+enum FilingMethod {
+  BLUE  @map("blue")
+  WHITE @map("white")
+
+  @@map("filing_method")
+}
+
+enum ConsumptionTaxStatus {
+  EXEMPT             @map("exempt")
+  TAXABLE            @map("taxable")
+  INVOICE_REGISTERED @map("invoice_registered")
+
+  @@map("consumption_tax_status")
+}
+
+enum BlueDeductionTarget {
+  NONE           @map("none")
+  DEDUCTION_100K @map("100k")
+  DEDUCTION_550K @map("550k")
+  DEDUCTION_650K @map("650k")
+
+  @@map("blue_deduction_target")
+}
+
+enum InventoryValuationMethod {
+  SPECIFIC           @map("specific")
+  LAST_PURCHASE_COST @map("last_purchase_cost")
+  GROSS_AVERAGE      @map("gross_average")
+  OTHER              @map("other")
+
+  @@map("inventory_valuation_method")
+}
+
+enum FiscalYearStatus {
+  OPEN    @map("open")
+  CLOSING @map("closing")
+  LOCKED  @map("locked")
+
+  @@map("fiscal_year_status")
+}
+
+model Workspace {
+  id                   String            @id @default(uuid()) @db.Uuid
+  name                 String
+  timezone             String            @default("Asia/Tokyo")
+  baseCurrency         String            @default("JPY") @map("base_currency")
+  setupCompletedAt     DateTime?         @map("setup_completed_at") @db.Timestamptz(3)
+  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  operators            Operator[]
+  userAccounts         UserAccount[]
+  reportingEntities    ReportingEntity[]
+  businessUnits        BusinessUnit[]
+  auditLogs            AuditLog[]
+
+  @@map("workspace")
+}
+
+model Operator {
+  id                   String         @id @default(uuid()) @db.Uuid
+  workspaceId          String         @map("workspace_id") @db.Uuid
+  displayName          String         @map("display_name")
+  active               Boolean        @default(true)
+  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace            Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  defaultAssignments   BusinessUnitAssignment[] @relation("DefaultAssignmentOperator")
+  sessions             AuthSession[]
+  auditLogs            AuditLog[]
+
+  @@unique([workspaceId, displayName])
+  @@index([workspaceId, active])
+  @@map("operator")
+}
+
+model UserAccount {
+  id             String         @id @default(uuid()) @db.Uuid
+  workspaceId    String         @map("workspace_id") @db.Uuid
+  loginName      String         @map("login_name")
+  normalizedName String         @unique @map("normalized_name")
+  passwordHash   String         @map("password_hash")
+  role           AccountRole    @default(ADMIN)
+  active         Boolean        @default(true)
+  lastLoginAt    DateTime?      @map("last_login_at") @db.Timestamptz(3)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  sessions       AuthSession[]
+  auditLogs      AuditLog[]
+
+  @@unique([workspaceId, normalizedName])
+  @@map("user_account")
+}
+
+model AuthSession {
+  id                   String       @id @default(uuid()) @db.Uuid
+  userAccountId        String       @map("user_account_id") @db.Uuid
+  tokenHash            String       @unique @map("token_hash")
+  activeOperatorId     String?      @map("active_operator_id") @db.Uuid
+  activeBusinessUnitId String?      @map("active_business_unit_id") @db.Uuid
+  selectedYear         Int?         @map("selected_year") @db.SmallInt
+  expiresAt            DateTime     @map("expires_at") @db.Timestamptz(3)
+  absoluteExpiresAt    DateTime     @map("absolute_expires_at") @db.Timestamptz(3)
+  lastSeenAt           DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  revokedAt            DateTime?    @map("revoked_at") @db.Timestamptz(3)
+  createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  userAccount          UserAccount  @relation(fields: [userAccountId], references: [id], onDelete: Cascade)
+  activeOperator       Operator?    @relation(fields: [activeOperatorId], references: [id], onDelete: SetNull)
+  activeBusinessUnit   BusinessUnit? @relation(fields: [activeBusinessUnitId], references: [id], onDelete: SetNull)
+
+  @@index([userAccountId, revokedAt])
+  @@map("auth_session")
+}
+
+model AuthLoginThrottle {
+  normalizedName String    @id @map("normalized_name")
+  failureCount   Int       @default(0) @map("failure_count")
+  windowStartedAt DateTime @map("window_started_at") @db.Timestamptz(3)
+  blockedUntil   DateTime? @map("blocked_until") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("auth_login_throttle")
+}
+
+model ReportingEntity {
+  id                 String              @id @default(uuid()) @db.Uuid
+  workspaceId        String              @map("workspace_id") @db.Uuid
+  displayName        String              @map("display_name")
+  entityType         EntityType          @default(INDIVIDUAL) @map("entity_type")
+  active             Boolean             @default(true)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  fiscalYearProfiles FiscalYearProfile[]
+
+  @@unique([workspaceId, displayName])
+  @@index([workspaceId, active])
+  @@map("reporting_entity")
+}
+
+model FiscalYearProfile {
+  id                           String                   @id @default(uuid()) @db.Uuid
+  reportingEntityId            String                   @map("reporting_entity_id") @db.Uuid
+  year                         Int                      @db.SmallInt
+  filingMethod                 FilingMethod             @map("filing_method")
+  consumptionTaxStatus         ConsumptionTaxStatus     @map("consumption_tax_status")
+  blueDeductionTarget          BlueDeductionTarget      @map("blue_deduction_target")
+  inventoryValuationMethod     InventoryValuationMethod @map("inventory_valuation_method")
+  inventoryValuationMethodNote String?                  @map("inventory_valuation_method_note")
+  startDate                    DateTime                 @map("start_date") @db.Date
+  endDate                      DateTime                 @map("end_date") @db.Date
+  status                       FiscalYearStatus         @default(OPEN)
+  lockedAt                     DateTime?                @map("locked_at") @db.Timestamptz(3)
+  createdAt                    DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                    DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+  reportingEntity              ReportingEntity          @relation(fields: [reportingEntityId], references: [id], onDelete: Restrict)
+  assignments                  BusinessUnitAssignment[]
+
+  @@unique([reportingEntityId, year])
+  @@index([year, status])
+  @@map("fiscal_year_profile")
+}
+
+model BusinessUnit {
+  id                String                   @id @default(uuid()) @db.Uuid
+  workspaceId       String                   @map("workspace_id") @db.Uuid
+  code              String
+  name              String
+  color             String
+  active            Boolean                  @default(true)
+  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace         Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  assignments       BusinessUnitAssignment[]
+  activeSessions    AuthSession[]
+
+  @@unique([workspaceId, code])
+  @@unique([workspaceId, name])
+  @@index([workspaceId, active])
+  @@map("business_unit")
+}
+
+model BusinessUnitAssignment {
+  id                  String            @id @default(uuid()) @db.Uuid
+  businessUnitId      String            @map("business_unit_id") @db.Uuid
+  fiscalYearProfileId String            @map("fiscal_year_profile_id") @db.Uuid
+  defaultOperatorId   String?           @map("default_operator_id") @db.Uuid
+  effectiveFrom       DateTime          @map("effective_from") @db.Date
+  effectiveTo         DateTime          @map("effective_to") @db.Date
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  businessUnit        BusinessUnit      @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  fiscalYearProfile   FiscalYearProfile @relation(fields: [fiscalYearProfileId], references: [id], onDelete: Restrict)
+  defaultOperator     Operator?         @relation("DefaultAssignmentOperator", fields: [defaultOperatorId], references: [id], onDelete: Restrict)
+
+  @@unique([businessUnitId, fiscalYearProfileId, effectiveFrom])
+  @@index([businessUnitId, effectiveFrom, effectiveTo])
+  @@index([defaultOperatorId])
+  @@map("business_unit_assignment")
+}
+
+model AuditLog {
+  id            String       @id @default(uuid()) @db.Uuid
+  workspaceId   String       @map("workspace_id") @db.Uuid
+  userAccountId String?      @map("user_account_id") @db.Uuid
+  operatorId    String?      @map("operator_id") @db.Uuid
+  action        String
+  entityType    String       @map("entity_type")
+  entityId      String       @map("entity_id") @db.Uuid
+  beforeJson    Json?        @map("before_json")
+  afterJson     Json?        @map("after_json")
+  occurredAt    DateTime     @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  requestId     String?      @map("request_id")
+  workspace     Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  userAccount   UserAccount? @relation(fields: [userAccountId], references: [id], onDelete: SetNull)
+  operator      Operator?    @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, occurredAt])
+  @@index([entityType, entityId])
+  @@map("audit_log")
+}

@@ -1,0 +1,121 @@
+name: buppancho
+
+services:
+  postgres:
+    image: postgres:18.4-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-buppancho}
+      POSTGRES_USER: ${POSTGRES_USER:-buppancho}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      TZ: UTC
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+      target: tools
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-buppancho}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-buppancho}
+    command: ["pnpm", "db:deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+    profiles: [tools]
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+      target: runner
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-buppancho}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-buppancho}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-localhost:3000}
+      BACKUP_STATUS_FILE: /var/run/buppancho-backup/status.json
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - type: bind
+        source: ${BACKUP_STATUS_DIR:-./backup-status}
+        target: /var/run/buppancho-backup
+        read_only: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/api/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [internal, edge]
+
+  backup:
+    build:
+      context: .
+      dockerfile: docker/backup/Dockerfile
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-buppancho}
+      POSTGRES_USER: ${POSTGRES_USER:-buppancho}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_ROOT: /backups
+      BACKUP_STATUS_FILE: /status/status.json
+      BACKUP_IDENTITY_FILE: /run/secrets/backup-identity
+      BACKUP_MIRROR_ROOT: ${BACKUP_MIRROR_DIR:+/mirror}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    volumes:
+      - type: bind
+        source: ${BACKUP_DIR:-./backups}
+        target: /backups
+      - type: bind
+        source: ${BACKUP_STATUS_DIR:-./backup-status}
+        target: /status
+      - type: bind
+        source: ${BACKUP_MIRROR_DIR:-./backups-mirror}
+        target: /mirror
+    secrets:
+      - backup-identity
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.7.2
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN}"]
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [edge]
+    profiles: [tunnel]
+
+volumes:
+  postgres_data:
+
+networks:
+  internal:
+    internal: true
+  edge:
+
+secrets:
+  backup-identity:
+    file: ${BACKUP_IDENTITY_FILE:-./secrets/backup-identity.txt}

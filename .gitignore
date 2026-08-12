@@ -1,0 +1,17 @@
+node_modules/
+.pnpm-store/
+.next/
+generated/
+coverage/
+playwright-report/
+test-results/
+.env
+.env.local
+.env.*.local
+!.env.example
+*.log
+backups/
+backups-mirror/
+secrets/
+backup-status/
+tsconfig.tsbuildinfo
