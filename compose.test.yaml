@@ -1,0 +1,81 @@
+name: buppancho-test
+
+services:
+  postgres-test:
+    image: postgres:18.4-bookworm
+    environment:
+      POSTGRES_DB: buppancho_test
+      POSTGRES_USER: buppancho_test
+      POSTGRES_PASSWORD: buppancho_test_only
+      TZ: UTC
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U buppancho_test -d buppancho_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - test_postgres_data:/var/lib/postgresql
+
+  migrate-test:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+      target: tools
+    environment:
+      DATABASE_URL: postgresql://buppancho_test:buppancho_test_only@postgres-test:5432/buppancho_test
+    command: ["pnpm", "db:deploy"]
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+
+  seed-test:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+      target: tools
+    environment:
+      DATABASE_URL: postgresql://buppancho_test:buppancho_test_only@postgres-test:5432/buppancho_test
+    command: ["pnpm", "exec", "tsx", "scripts/test/seed-e2e.ts"]
+    depends_on:
+      migrate-test:
+        condition: service_completed_successfully
+
+  app-test:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+      target: deps
+    command: ["pnpm", "dev", "--hostname", "0.0.0.0"]
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://buppancho_test:buppancho_test_only@postgres-test:5432/buppancho_test
+      APP_URL: http://127.0.0.1:3100
+      ALLOWED_ORIGINS: 127.0.0.1:3100,localhost:3100
+      BACKUP_STATUS_FILE: /tmp/buppancho-test-backup-status.json
+    ports:
+      - "127.0.0.1:3100:3000"
+    volumes:
+      - .:/app
+      - test_node_modules:/app/node_modules
+      - test_next:/app/.next
+    depends_on:
+      seed-test:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/api/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  test_postgres_data:
+  test_node_modules:
+  test_next:

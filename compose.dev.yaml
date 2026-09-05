@@ -12,6 +12,9 @@ services:
     volumes:
       - .:/app
       - dev_node_modules:/app/node_modules
+      # ホスト側のpnpm buildと開発サーバーの成果物が混在しないよう分離する。
+      - dev_next:/app/.next
 
 volumes:
   dev_node_modules:
+  dev_next:

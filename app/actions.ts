@@ -79,6 +79,39 @@ export async function loginAction(_state: ActionState, formData: FormData): Prom
   const token = createSessionToken();
   const expiresAt = new Date(now.getTime() + IDLE_SESSION_MS);
   const absoluteExpiresAt = new Date(now.getTime() + ABSOLUTE_SESSION_MS);
+  const defaultAssignment = account.workspace.setupCompletedAt
+    ? await db.businessUnitAssignment.findFirst({
+        where: {
+          businessUnit: { workspaceId: account.workspaceId, active: true },
+          fiscalYearProfile: { reportingEntity: { workspaceId: account.workspaceId } },
+        },
+        orderBy: [{ fiscalYearProfile: { year: "desc" } }, { createdAt: "asc" }],
+        select: {
+          businessUnitId: true,
+          defaultOperatorId: true,
+          fiscalYearProfile: { select: { year: true } },
+        },
+      })
+    : null;
+  const assignedOperator = defaultAssignment?.defaultOperatorId
+    ? await db.operator.findFirst({
+        where: {
+          id: defaultAssignment.defaultOperatorId,
+          workspaceId: account.workspaceId,
+          active: true,
+        },
+        select: { id: true },
+      })
+    : null;
+  const fallbackOperator =
+    assignedOperator ??
+    (account.workspace.setupCompletedAt
+      ? await db.operator.findFirst({
+          where: { workspaceId: account.workspaceId, active: true },
+          orderBy: { createdAt: "asc" },
+          select: { id: true },
+        })
+      : null);
   await db.$transaction(async (tx) => {
     await tx.authLoginThrottle.deleteMany({ where: { normalizedName } });
     await tx.userAccount.update({ where: { id: account.id }, data: { lastLoginAt: now } });
@@ -86,6 +119,9 @@ export async function loginAction(_state: ActionState, formData: FormData): Prom
       data: {
         userAccountId: account.id,
         tokenHash: hashSessionToken(token),
+        activeOperatorId: fallbackOperator?.id ?? null,
+        activeBusinessUnitId: defaultAssignment?.businessUnitId ?? null,
+        selectedYear: defaultAssignment?.fiscalYearProfile.year ?? null,
         expiresAt,
         absoluteExpiresAt,
       },

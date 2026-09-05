@@ -60,34 +60,161 @@ enum FiscalYearStatus {
   @@map("fiscal_year_status")
 }
 
+enum CounterpartyType {
+  SUPPLIER @map("supplier")
+  CUSTOMER @map("customer")
+  AGENT    @map("agent")
+  CARRIER  @map("carrier")
+  OTHER    @map("other")
+
+  @@map("counterparty_type")
+}
+
+enum SequenceKind {
+  ITEM     @map("item")
+  VARIANT  @map("variant")
+  UNIT     @map("unit")
+  PURCHASE @map("purchase")
+
+  @@map("sequence_kind")
+}
+
+enum ItemConditionCategory {
+  UNSPECIFIED @map("unspecified")
+  NEW         @map("new")
+  USED        @map("used")
+
+  @@map("item_condition_category")
+}
+
+enum InventoryManagementType {
+  QUANTITY @map("quantity")
+  UNIQUE   @map("unique")
+
+  @@map("inventory_management_type")
+}
+
+enum ManagementCostMethod {
+  MOVING_AVERAGE @map("moving_average")
+  FIFO           @map("fifo")
+  SPECIFIC       @map("specific")
+
+  @@map("management_cost_method")
+}
+
+enum InventoryItemStatus {
+  ACTIVE   @map("active")
+  INACTIVE @map("inactive")
+
+  @@map("inventory_item_status")
+}
+
+enum InventoryCostStatus {
+  PROVISIONAL @map("provisional")
+  FINAL       @map("final")
+
+  @@map("inventory_cost_status")
+}
+
+enum UniqueStockStatus {
+  IN_STOCK           @map("in_stock")
+  RESERVED           @map("reserved")
+  SOLD               @map("sold")
+  RETURNED           @map("returned")
+  DISPOSED           @map("disposed")
+  LOST               @map("lost")
+  PERSONAL_USE       @map("personal_use")
+  PURCHASE_CANCELLED @map("purchase_cancelled")
+
+  @@map("unique_stock_status")
+}
+
+enum PurchaseType {
+  DOMESTIC        @map("domestic")
+  RAKUMART_IMPORT @map("rakumart_import")
+  USED_BUNDLE     @map("used_bundle")
+  OTHER           @map("other")
+
+  @@map("purchase_type")
+}
+
+enum PurchaseStatus {
+  DRAFT              @map("draft")
+  ORDERED            @map("ordered")
+  PAID               @map("paid")
+  PARTIALLY_RECEIVED @map("partially_received")
+  RECEIVED           @map("received")
+  COSTING            @map("costing")
+  FINALIZED          @map("finalized")
+  CANCELLED          @map("cancelled")
+
+  @@map("purchase_status")
+}
+
+enum InventoryOperationType {
+  PURCHASE_RECEIPT  @map("purchase_receipt")
+  PURCHASE_REVERSAL @map("purchase_reversal")
+  LOCATION_TRANSFER @map("location_transfer")
+  DISPOSAL          @map("disposal")
+  LOSS              @map("loss")
+  PERSONAL_USE      @map("personal_use")
+  ADJUSTMENT_IN     @map("adjustment_in")
+  ADJUSTMENT_OUT    @map("adjustment_out")
+
+  @@map("inventory_operation_type")
+}
+
+enum StockMovementType {
+  RECEIPT           @map("receipt")
+  RECEIPT_REVERSAL  @map("receipt_reversal")
+  LOCATION_TRANSFER @map("location_transfer")
+  DISPOSAL          @map("disposal")
+  LOSS              @map("loss")
+  PERSONAL_USE      @map("personal_use")
+  ADJUSTMENT_IN     @map("adjustment_in")
+  ADJUSTMENT_OUT    @map("adjustment_out")
+
+  @@map("stock_movement_type")
+}
+
 model Workspace {
-  id                   String            @id @default(uuid()) @db.Uuid
-  name                 String
-  timezone             String            @default("Asia/Tokyo")
-  baseCurrency         String            @default("JPY") @map("base_currency")
-  setupCompletedAt     DateTime?         @map("setup_completed_at") @db.Timestamptz(3)
-  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt            DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
-  operators            Operator[]
-  userAccounts         UserAccount[]
-  reportingEntities    ReportingEntity[]
-  businessUnits        BusinessUnit[]
-  auditLogs            AuditLog[]
+  id                  String               @id @default(uuid()) @db.Uuid
+  name                String
+  timezone            String               @default("Asia/Tokyo")
+  baseCurrency        String               @default("JPY") @map("base_currency")
+  setupCompletedAt    DateTime?            @map("setup_completed_at") @db.Timestamptz(3)
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  operators           Operator[]
+  userAccounts        UserAccount[]
+  reportingEntities   ReportingEntity[]
+  businessUnits       BusinessUnit[]
+  auditLogs           AuditLog[]
+  storageLocations    StorageLocation[]
+  counterparties      Counterparty[]
+  sequences           WorkspaceSequence[]
+  inventoryItems      InventoryItem[]
+  itemVariants        ItemVariant[]
+  uniqueStockUnits    UniqueStockUnit[]
+  purchases           Purchase[]
+  inventoryOperations InventoryOperation[]
 
   @@map("workspace")
 }
 
 model Operator {
-  id                   String         @id @default(uuid()) @db.Uuid
-  workspaceId          String         @map("workspace_id") @db.Uuid
-  displayName          String         @map("display_name")
-  active               Boolean        @default(true)
-  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
-  workspace            Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  defaultAssignments   BusinessUnitAssignment[] @relation("DefaultAssignmentOperator")
-  sessions             AuthSession[]
-  auditLogs            AuditLog[]
+  id                  String                   @id @default(uuid()) @db.Uuid
+  workspaceId         String                   @map("workspace_id") @db.Uuid
+  displayName         String                   @map("display_name")
+  active              Boolean                  @default(true)
+  createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace           Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  defaultAssignments  BusinessUnitAssignment[] @relation("DefaultAssignmentOperator")
+  sessions            AuthSession[]
+  auditLogs           AuditLog[]
+  inventoryOperations InventoryOperation[]
+  stockMovements      StockMovement[]
 
   @@unique([workspaceId, displayName])
   @@index([workspaceId, active])
@@ -95,17 +222,17 @@ model Operator {
 }
 
 model UserAccount {
-  id             String         @id @default(uuid()) @db.Uuid
-  workspaceId    String         @map("workspace_id") @db.Uuid
-  loginName      String         @map("login_name")
-  normalizedName String         @unique @map("normalized_name")
-  passwordHash   String         @map("password_hash")
-  role           AccountRole    @default(ADMIN)
-  active         Boolean        @default(true)
-  lastLoginAt    DateTime?      @map("last_login_at") @db.Timestamptz(3)
-  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
-  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  id             String        @id @default(uuid()) @db.Uuid
+  workspaceId    String        @map("workspace_id") @db.Uuid
+  loginName      String        @map("login_name")
+  normalizedName String        @unique @map("normalized_name")
+  passwordHash   String        @map("password_hash")
+  role           AccountRole   @default(ADMIN)
+  active         Boolean       @default(true)
+  lastLoginAt    DateTime?     @map("last_login_at") @db.Timestamptz(3)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   sessions       AuthSession[]
   auditLogs      AuditLog[]
 
@@ -114,19 +241,19 @@ model UserAccount {
 }
 
 model AuthSession {
-  id                   String       @id @default(uuid()) @db.Uuid
-  userAccountId        String       @map("user_account_id") @db.Uuid
-  tokenHash            String       @unique @map("token_hash")
-  activeOperatorId     String?      @map("active_operator_id") @db.Uuid
-  activeBusinessUnitId String?      @map("active_business_unit_id") @db.Uuid
-  selectedYear         Int?         @map("selected_year") @db.SmallInt
-  expiresAt            DateTime     @map("expires_at") @db.Timestamptz(3)
-  absoluteExpiresAt    DateTime     @map("absolute_expires_at") @db.Timestamptz(3)
-  lastSeenAt           DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(3)
-  revokedAt            DateTime?    @map("revoked_at") @db.Timestamptz(3)
-  createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  userAccount          UserAccount  @relation(fields: [userAccountId], references: [id], onDelete: Cascade)
-  activeOperator       Operator?    @relation(fields: [activeOperatorId], references: [id], onDelete: SetNull)
+  id                   String        @id @default(uuid()) @db.Uuid
+  userAccountId        String        @map("user_account_id") @db.Uuid
+  tokenHash            String        @unique @map("token_hash")
+  activeOperatorId     String?       @map("active_operator_id") @db.Uuid
+  activeBusinessUnitId String?       @map("active_business_unit_id") @db.Uuid
+  selectedYear         Int?          @map("selected_year") @db.SmallInt
+  expiresAt            DateTime      @map("expires_at") @db.Timestamptz(3)
+  absoluteExpiresAt    DateTime      @map("absolute_expires_at") @db.Timestamptz(3)
+  lastSeenAt           DateTime      @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  revokedAt            DateTime?     @map("revoked_at") @db.Timestamptz(3)
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  userAccount          UserAccount   @relation(fields: [userAccountId], references: [id], onDelete: Cascade)
+  activeOperator       Operator?     @relation(fields: [activeOperatorId], references: [id], onDelete: SetNull)
   activeBusinessUnit   BusinessUnit? @relation(fields: [activeBusinessUnitId], references: [id], onDelete: SetNull)
 
   @@index([userAccountId, revokedAt])
@@ -134,11 +261,11 @@ model AuthSession {
 }
 
 model AuthLoginThrottle {
-  normalizedName String    @id @map("normalized_name")
-  failureCount   Int       @default(0) @map("failure_count")
-  windowStartedAt DateTime @map("window_started_at") @db.Timestamptz(3)
-  blockedUntil   DateTime? @map("blocked_until") @db.Timestamptz(3)
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  normalizedName  String    @id @map("normalized_name")
+  failureCount    Int       @default(0) @map("failure_count")
+  windowStartedAt DateTime  @map("window_started_at") @db.Timestamptz(3)
+  blockedUntil    DateTime? @map("blocked_until") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("auth_login_throttle")
 }
@@ -153,6 +280,7 @@ model ReportingEntity {
   updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
   workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   fiscalYearProfiles FiscalYearProfile[]
+  purchases          Purchase[]
 
   @@unique([workspaceId, displayName])
   @@index([workspaceId, active])
@@ -183,17 +311,23 @@ model FiscalYearProfile {
 }
 
 model BusinessUnit {
-  id                String                   @id @default(uuid()) @db.Uuid
-  workspaceId       String                   @map("workspace_id") @db.Uuid
-  code              String
-  name              String
-  color             String
-  active            Boolean                  @default(true)
-  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
-  workspace         Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  assignments       BusinessUnitAssignment[]
-  activeSessions    AuthSession[]
+  id                  String                   @id @default(uuid()) @db.Uuid
+  workspaceId         String                   @map("workspace_id") @db.Uuid
+  code                String
+  name                String
+  color               String
+  active              Boolean                  @default(true)
+  createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace           Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  assignments         BusinessUnitAssignment[]
+  activeSessions      AuthSession[]
+  storageLocations    StorageLocation[]
+  inventoryItems      InventoryItem[]
+  costBalances        InventoryCostBalance[]
+  purchases           Purchase[]
+  inventoryOperations InventoryOperation[]
+  stockMovements      StockMovement[]
 
   @@unique([workspaceId, code])
   @@unique([workspaceId, name])
@@ -239,4 +373,289 @@ model AuditLog {
   @@index([workspaceId, occurredAt])
   @@index([entityType, entityId])
   @@map("audit_log")
+}
+
+model StorageLocation {
+  id               String            @id @default(uuid()) @db.Uuid
+  workspaceId      String            @map("workspace_id") @db.Uuid
+  businessUnitId   String?           @map("business_unit_id") @db.Uuid
+  code             String
+  name             String
+  active           Boolean           @default(true)
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  businessUnit     BusinessUnit?     @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  defaultForItems  InventoryItem[]
+  receivedLots     InventoryLot[]
+  uniqueStockUnits UniqueStockUnit[]
+  movementsFrom    StockMovement[]   @relation("MovementFrom")
+  movementsTo      StockMovement[]   @relation("MovementTo")
+  purchases        Purchase[]
+
+  @@unique([workspaceId, code])
+  @@index([workspaceId, active])
+  @@index([businessUnitId])
+  @@map("storage_location")
+}
+
+model Counterparty {
+  id          String           @id @default(uuid()) @db.Uuid
+  workspaceId String           @map("workspace_id") @db.Uuid
+  name        String
+  type        CounterpartyType @default(SUPPLIER)
+  currency    String           @default("JPY")
+  memo        String?
+  active      Boolean          @default(true)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  purchases   Purchase[]
+
+  @@unique([workspaceId, name, type])
+  @@index([workspaceId, type, active])
+  @@map("counterparty")
+}
+
+model WorkspaceSequence {
+  workspaceId String       @map("workspace_id") @db.Uuid
+  kind        SequenceKind
+  nextValue   BigInt       @default(1) @map("next_value") @db.BigInt
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, kind])
+  @@map("workspace_sequence")
+}
+
+model InventoryItem {
+  id                       String                  @id @default(uuid()) @db.Uuid
+  workspaceId              String                  @map("workspace_id") @db.Uuid
+  businessUnitId           String                  @map("business_unit_id") @db.Uuid
+  itemCode                 String                  @map("item_code")
+  name                     String
+  category                 String?
+  defaultConditionCategory ItemConditionCategory   @default(UNSPECIFIED) @map("default_condition_category")
+  managementType           InventoryManagementType @map("management_type")
+  /// DB制約により数量管理はMOVING_AVERAGE、個体管理はSPECIFICのみ許可する。
+  managementCostMethod     ManagementCostMethod    @map("management_cost_method")
+  defaultStorageLocationId String?                 @map("default_storage_location_id") @db.Uuid
+  status                   InventoryItemStatus     @default(ACTIVE)
+  memo                     String?
+  createdAt                DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace                Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  businessUnit             BusinessUnit            @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  defaultStorageLocation   StorageLocation?        @relation(fields: [defaultStorageLocationId], references: [id], onDelete: Restrict)
+  variants                 ItemVariant[]
+
+  @@unique([workspaceId, itemCode])
+  @@index([workspaceId, businessUnitId, status])
+  @@index([name])
+  @@map("inventory_item")
+}
+
+model ItemVariant {
+  id               String                 @id @default(uuid()) @db.Uuid
+  workspaceId      String                 @map("workspace_id") @db.Uuid
+  inventoryItemId  String                 @map("inventory_item_id") @db.Uuid
+  variantCode      String                 @map("variant_code")
+  attributesJson   Json                   @default("{}") @map("attributes_json")
+  active           Boolean                @default(true)
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+  inventoryItem    InventoryItem          @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  workspace        Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  inventoryLots    InventoryLot[]
+  uniqueStockUnits UniqueStockUnit[]
+  costBalances     InventoryCostBalance[]
+  purchaseLines    PurchaseLine[]
+  stockMovements   StockMovement[]
+
+  @@unique([inventoryItemId, variantCode])
+  @@unique([workspaceId, variantCode])
+  @@index([inventoryItemId, active])
+  @@map("item_variant")
+}
+
+model InventoryLot {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  itemVariantId      String                  @map("item_variant_id") @db.Uuid
+  trackingMode       InventoryManagementType @map("tracking_mode")
+  purchaseLineId     String?                 @unique @map("purchase_line_id") @db.Uuid
+  receivedDate       DateTime                @map("received_date") @db.Date
+  receivedQuantity   Int                     @map("received_quantity")
+  remainingQuantity  Int                     @map("remaining_quantity")
+  landedCostTotalJpy BigInt                  @map("landed_cost_total_jpy") @db.BigInt
+  unitCostJpy        Decimal                 @map("unit_cost_jpy") @db.Decimal(20, 6)
+  costStatus         InventoryCostStatus     @default(FINAL) @map("cost_status")
+  storageLocationId  String                  @map("storage_location_id") @db.Uuid
+  createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  itemVariant        ItemVariant             @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
+  purchaseLine       PurchaseLine?           @relation(fields: [purchaseLineId], references: [id], onDelete: Restrict)
+  storageLocation    StorageLocation         @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
+  uniqueStockUnits   UniqueStockUnit[]
+  stockMovements     StockMovement[]
+
+  @@index([itemVariantId, receivedDate, id])
+  @@map("inventory_lot")
+}
+
+model UniqueStockUnit {
+  id                 String            @id @default(uuid()) @db.Uuid
+  workspaceId        String            @map("workspace_id") @db.Uuid
+  itemVariantId      String            @map("item_variant_id") @db.Uuid
+  inventoryLotId     String            @map("inventory_lot_id") @db.Uuid
+  individualCode     String            @map("individual_code")
+  condition          String
+  measurementsJson   Json              @default("{}") @map("measurements_json")
+  acquisitionCostJpy BigInt            @map("acquisition_cost_jpy") @db.BigInt
+  storageLocationId  String            @map("storage_location_id") @db.Uuid
+  status             UniqueStockStatus @default(IN_STOCK)
+  memo               String?
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace          Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  itemVariant        ItemVariant       @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
+  inventoryLot       InventoryLot      @relation(fields: [inventoryLotId], references: [id], onDelete: Restrict)
+  storageLocation    StorageLocation   @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
+  stockMovements     StockMovement[]
+
+  @@unique([workspaceId, individualCode])
+  @@index([itemVariantId, status])
+  @@index([storageLocationId, status])
+  @@map("unique_stock_unit")
+}
+
+model InventoryCostBalance {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  itemVariantId        String                  @map("item_variant_id") @db.Uuid
+  businessUnitId       String                  @map("business_unit_id") @db.Uuid
+  trackingMode         InventoryManagementType @map("tracking_mode")
+  quantity             Int                     @default(0)
+  carryingCostTotalJpy BigInt                  @default(0) @map("carrying_cost_total_jpy") @db.BigInt
+  averageUnitCostJpy   Decimal                 @default(0) @map("average_unit_cost_jpy") @db.Decimal(20, 6)
+  updatedAt            DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+  itemVariant          ItemVariant             @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
+  businessUnit         BusinessUnit            @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([itemVariantId, businessUnitId, trackingMode])
+  @@index([businessUnitId, quantity])
+  @@map("inventory_cost_balance")
+}
+
+model Purchase {
+  id                String          @id @default(uuid()) @db.Uuid
+  workspaceId       String          @map("workspace_id") @db.Uuid
+  businessUnitId    String          @map("business_unit_id") @db.Uuid
+  reportingEntityId String          @map("reporting_entity_id") @db.Uuid
+  supplierId        String          @map("supplier_id") @db.Uuid
+  storageLocationId String          @map("storage_location_id") @db.Uuid
+  purchaseType      PurchaseType    @map("purchase_type")
+  purchaseCode      String          @map("purchase_code")
+  requestKey        String          @unique @map("request_key") @db.Uuid
+  orderNumber       String?         @map("order_number")
+  purchasedDate     DateTime        @map("purchased_date") @db.Date
+  currency          String          @default("JPY")
+  purchaseTotalJpy  BigInt          @map("purchase_total_jpy") @db.BigInt
+  expectedItemCount Int?            @map("expected_item_count")
+  status            PurchaseStatus  @default(DRAFT)
+  memo              String?
+  finalizedAt       DateTime?       @map("finalized_at") @db.Timestamptz(3)
+  cancelledAt       DateTime?       @map("cancelled_at") @db.Timestamptz(3)
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace         Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  businessUnit      BusinessUnit    @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  reportingEntity   ReportingEntity @relation(fields: [reportingEntityId], references: [id], onDelete: Restrict)
+  supplier          Counterparty    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  storageLocation   StorageLocation @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
+  lines             PurchaseLine[]
+
+  @@unique([workspaceId, purchaseCode])
+  @@index([workspaceId, businessUnitId, purchasedDate])
+  @@index([status, purchasedDate])
+  @@map("purchase")
+}
+
+model PurchaseLine {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  purchaseId            String                  @map("purchase_id") @db.Uuid
+  itemVariantId         String                  @map("item_variant_id") @db.Uuid
+  trackingMode          InventoryManagementType @map("tracking_mode")
+  conditionCategory     ItemConditionCategory   @default(UNSPECIFIED) @map("condition_category")
+  sourceName            String                  @map("source_name")
+  sourceUrl             String?                 @map("source_url")
+  orderedQuantity       Int                     @map("ordered_quantity")
+  productAmountJpy      BigInt                  @map("product_amount_jpy") @db.BigInt
+  finalLandedCostJpy    BigInt                  @map("final_landed_cost_jpy") @db.BigInt
+  draftIndividualCode   String?                 @map("draft_individual_code")
+  draftCondition        String?                 @map("draft_condition")
+  draftMeasurementsJson Json?                   @map("draft_measurements_json")
+  draftMemo             String?                 @map("draft_memo")
+  createdAt             DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+  purchase              Purchase                @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  itemVariant           ItemVariant             @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
+  inventoryLot          InventoryLot?
+
+  @@index([purchaseId])
+  @@index([itemVariantId])
+  @@map("purchase_line")
+}
+
+model InventoryOperation {
+  id             String                 @id @default(uuid()) @db.Uuid
+  workspaceId    String                 @map("workspace_id") @db.Uuid
+  businessUnitId String                 @map("business_unit_id") @db.Uuid
+  operatorId     String                 @map("operator_id") @db.Uuid
+  operationType  InventoryOperationType @map("operation_type")
+  sourceType     String                 @map("source_type")
+  sourceId       String                 @map("source_id") @db.Uuid
+  idempotencyKey String                 @unique @map("idempotency_key") @db.Uuid
+  occurredAt     DateTime               @map("occurred_at") @db.Timestamptz(3)
+  note           String?
+  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  workspace      Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  businessUnit   BusinessUnit           @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  operator       Operator               @relation(fields: [operatorId], references: [id], onDelete: Restrict)
+  movements      StockMovement[]
+
+  @@index([workspaceId, occurredAt])
+  @@index([sourceType, sourceId])
+  @@map("inventory_operation")
+}
+
+model StockMovement {
+  id                    String             @id @default(uuid()) @db.Uuid
+  operationId           String             @map("operation_id") @db.Uuid
+  itemVariantId         String             @map("item_variant_id") @db.Uuid
+  inventoryLotId        String?            @map("inventory_lot_id") @db.Uuid
+  uniqueStockUnitId     String?            @map("unique_stock_unit_id") @db.Uuid
+  movementType          StockMovementType  @map("movement_type")
+  quantity              Int
+  costTotalJpy          BigInt             @map("cost_total_jpy") @db.BigInt
+  movementAt            DateTime           @map("movement_at") @db.Timestamptz(3)
+  businessUnitId        String             @map("business_unit_id") @db.Uuid
+  storageLocationFromId String?            @map("storage_location_from_id") @db.Uuid
+  storageLocationToId   String?            @map("storage_location_to_id") @db.Uuid
+  sourceType            String             @map("source_type")
+  sourceId              String             @map("source_id") @db.Uuid
+  idempotencyKey        String             @unique @map("idempotency_key")
+  operatorId            String             @map("operator_id") @db.Uuid
+  note                  String?
+  createdAt             DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  operation             InventoryOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  itemVariant           ItemVariant        @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
+  inventoryLot          InventoryLot?      @relation(fields: [inventoryLotId], references: [id], onDelete: Restrict)
+  uniqueStockUnit       UniqueStockUnit?   @relation(fields: [uniqueStockUnitId], references: [id], onDelete: Restrict)
+  businessUnit          BusinessUnit       @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  storageLocationFrom   StorageLocation?   @relation("MovementFrom", fields: [storageLocationFromId], references: [id], onDelete: Restrict)
+  storageLocationTo     StorageLocation?   @relation("MovementTo", fields: [storageLocationToId], references: [id], onDelete: Restrict)
+  operator              Operator           @relation(fields: [operatorId], references: [id], onDelete: Restrict)
+
+  @@index([itemVariantId, movementAt])
+  @@index([inventoryLotId, movementAt])
+  @@index([uniqueStockUnitId, movementAt])
+  @@index([businessUnitId, movementAt])
+  @@map("stock_movement")
 }

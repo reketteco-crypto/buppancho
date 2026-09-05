@@ -3,6 +3,10 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
+  // The isolated suite intentionally shares one prepared workspace. Running the
+  // desktop and mobile projects serially also exercises Serializable writes
+  // without turning expected browser concurrency into test data contention.
+  workers: process.env.E2E_ISOLATED === "1" ? 1 : undefined,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {

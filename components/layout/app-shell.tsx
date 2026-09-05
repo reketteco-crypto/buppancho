@@ -1,16 +1,9 @@
 import Link from "next/link";
-import {
-  Home,
-  PlusCircle,
-  Boxes,
-  BadgeJapaneseYen,
-  MoreHorizontal,
-  Settings,
-  LogOut,
-} from "lucide-react";
+import { Home, PlusCircle, Boxes, BadgeJapaneseYen, Settings, LogOut } from "lucide-react";
 import { logoutAction } from "@/app/actions";
 import { OnlineStatus } from "@/components/online-status";
 import { ContextSelector } from "@/components/layout/context-selector";
+import { MobileNav } from "@/components/layout/mobile-nav";
 
 type ShellProps = {
   children: React.ReactNode;
@@ -26,10 +19,9 @@ type ShellProps = {
   selectedYear: number | null;
 };
 
-const futureItems = [
-  { label: "登録", icon: PlusCircle, phase: "F1" },
-  { label: "商品・在庫", icon: Boxes, phase: "F1" },
-  { label: "販売", icon: BadgeJapaneseYen, phase: "F2" },
+const activeItems = [
+  { label: "登録", icon: PlusCircle, href: "/register" },
+  { label: "商品・在庫", icon: Boxes, href: "/inventory" },
 ];
 
 export function AppShell(props: ShellProps) {
@@ -45,23 +37,23 @@ export function AppShell(props: ShellProps) {
             <Home size={19} />
             ホーム
           </Link>
-          {futureItems.map(({ label, icon: Icon, phase }) => (
-            <span className="nav-link disabled" key={label} aria-disabled="true">
+          {activeItems.map(({ label, icon: Icon, href }) => (
+            <Link className="nav-link" key={label} href={href}>
               <Icon size={19} />
               {label}
-              <span className="phase-badge">{phase}</span>
-            </span>
+            </Link>
           ))}
+          <span className="nav-link disabled" aria-disabled="true">
+            <BadgeJapaneseYen size={19} />
+            販売<span className="phase-badge">F2</span>
+          </span>
           <Link className="nav-link" href="/settings">
             <Settings size={19} />
             その他・設定
           </Link>
         </nav>
         <form action={logoutAction} style={{ marginTop: "auto" }}>
-          <button
-            className="nav-link"
-            style={{ width: "100%", background: "transparent", border: 0 }}
-          >
+          <button className="nav-link nav-logout" type="submit">
             <LogOut size={19} />
             ログアウト
           </button>
@@ -84,28 +76,7 @@ export function AppShell(props: ShellProps) {
         </header>
         {props.children}
       </main>
-      <nav className="mobile-nav" aria-label="モバイルナビゲーション">
-        <Link href="/">
-          <Home size={20} />
-          ホーム
-        </Link>
-        <span className="disabled">
-          <PlusCircle size={20} />
-          登録
-        </span>
-        <span className="disabled">
-          <Boxes size={20} />
-          商品・在庫
-        </span>
-        <span className="disabled">
-          <BadgeJapaneseYen size={20} />
-          販売
-        </span>
-        <Link href="/settings">
-          <MoreHorizontal size={20} />
-          その他
-        </Link>
-      </nav>
+      <MobileNav />
     </div>
   );
 }

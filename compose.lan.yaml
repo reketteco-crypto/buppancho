@@ -1,0 +1,12 @@
+# 同じLAN内のスマートフォンなどから開発環境を確認するためのオーバーライドです。
+# compose.yaml、compose.dev.yamlと一緒に指定してください。
+services:
+  app:
+    # 通常構成のbuppancho-appイメージを開発用depsイメージで上書きしない。
+    image: buppancho-app-lan
+    environment:
+      NODE_ENV: development
+      APP_URL: http://${LAN_IP:?LAN_IP is required}:3000
+      ALLOWED_ORIGINS: ${LAN_IP}:3000,localhost:3000,127.0.0.1:3000
+    ports: !override
+      - "0.0.0.0:3000:3000"

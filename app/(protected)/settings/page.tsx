@@ -7,9 +7,15 @@ import {
   CalendarRange,
   ShieldCheck,
   DatabaseBackup,
+  MapPin,
+  Truck,
+  LogOut,
 } from "lucide-react";
+import { logoutAction } from "@/app/actions";
 
 const items = [
+  ["/settings/storage-locations", "保管場所", "倉庫・棚・収納場所", MapPin],
+  ["/settings/suppliers", "仕入先", "国内仕入れ先", Truck],
   ["/settings/workspace", "ワークスペース", "名称と基本情報", Settings],
   ["/settings/operators", "入力者", "記録を行う担当者", Users],
   ["/settings/reporting-entities", "申告主体", "所得・帳簿の帰属先", Contact],
@@ -42,6 +48,21 @@ export default function SettingsPage() {
           </Link>
         ))}
       </div>
+      <section className="card account-card" aria-labelledby="account-heading">
+        <div>
+          <p className="eyebrow">Account</p>
+          <h2 id="account-heading">アカウント</h2>
+          <p className="muted">
+            この端末のセッションを終了します。登録済みのデータは削除されません。
+          </p>
+        </div>
+        <form action={logoutAction}>
+          <button className="button secondary" type="submit">
+            <LogOut size={19} aria-hidden="true" />
+            この端末からログアウト
+          </button>
+        </form>
+      </section>
     </div>
   );
 }

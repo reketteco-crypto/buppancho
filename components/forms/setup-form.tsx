@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { initialSetupAction } from "@/app/actions";
+import { createClientUuid } from "@/lib/client-uuid";
 
 type OperatorRow = { key: string; displayName: string };
 type EntityRow = { key: string; displayName: string };
@@ -22,7 +23,7 @@ type UnitRow = {
   reportingEntityKey: string;
 };
 
-const newKey = (prefix: string) => `${prefix}_${crypto.randomUUID()}`;
+const newKey = (prefix: string) => `${prefix}_${createClientUuid()}`;
 
 export function SetupForm({ initialWorkspaceName }: { initialWorkspaceName: string }) {
   const [state, action, pending] = useActionState(initialSetupAction, {});

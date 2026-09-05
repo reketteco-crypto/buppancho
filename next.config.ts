@@ -1,14 +1,19 @@
 import type { NextConfig } from "next";
 
+const allowedOrigins =
+  process.env.ALLOWED_ORIGINS?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean) ?? [];
+
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  // 開発ツールの表示がスマホ下部ナビと重なるため、画面上のインジケーターは表示しない。
+  devIndicators: false,
+  allowedDevOrigins: allowedOrigins.map((value) => value.split(":", 1)[0]!),
   experimental: {
     serverActions: {
-      allowedOrigins:
-        process.env.ALLOWED_ORIGINS?.split(",")
-          .map((value) => value.trim())
-          .filter(Boolean) ?? [],
+      allowedOrigins,
     },
   },
   async headers() {
