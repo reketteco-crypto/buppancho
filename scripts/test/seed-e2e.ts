@@ -2,6 +2,7 @@ import { getDb } from "../../lib/db/client";
 import { hashPassword } from "../../lib/auth/password";
 import { normalizeLoginName } from "../../lib/auth/token";
 import { E2E_PASSWORD, E2E_READY_LOGIN, E2E_SETUP_LOGIN } from "./e2e-config";
+import { randomUUID } from "node:crypto";
 
 const db = getDb();
 
@@ -17,8 +18,12 @@ async function createAccount(workspaceId: string, loginName: string, passwordHas
 }
 
 async function main() {
+  if (!process.env.DATABASE_URL || !new URL(process.env.DATABASE_URL).pathname.endsWith("_test"))
+    throw new Error("末尾が _test の専用テストDBを明示してください。既存DBは初期化しません。");
   if (await db.workspace.count()) {
-    throw new Error("E2E用DBが空ではありません。テスト用Composeをdown -vして作り直してください。");
+    throw new Error(
+      "E2E用DBが空ではありません。既存データは保持し、別の空テストDBを用意してください。",
+    );
   }
   const passwordHash = await hashPassword(E2E_PASSWORD);
 
@@ -75,6 +80,104 @@ async function main() {
   await db.counterparty.create({
     data: { workspaceId: readyWorkspace.id, name: "E2E仕入先", type: "SUPPLIER" },
   });
+  await db.salesChannel.createMany({
+    data: [
+      {
+        workspaceId: readyWorkspace.id,
+        name: "メルカリ",
+        type: "MERCARI",
+        defaultFeeRate: "0.100000",
+      },
+      { workspaceId: readyWorkspace.id, name: "ラクマ", type: "RAKUMA" },
+      { workspaceId: readyWorkspace.id, name: "Yahoo!フリマ", type: "YAHOO_FLEAMARKET" },
+      { workspaceId: readyWorkspace.id, name: "メルカリShops", type: "MERCARI_SHOPS" },
+      { workspaceId: readyWorkspace.id, name: "その他", type: "OTHER" },
+    ],
+  });
+
+  for (const project of ["desktop", "mobile"]) {
+    for (const [name, quantity, cost] of [
+      ["ケース", 10, 1000],
+      ["フィルム", 15, 300],
+      ["クリーナー", 100, 50],
+    ] as const) {
+      const item = await db.inventoryItem.create({
+        data: {
+          workspaceId: readyWorkspace.id,
+          businessUnitId: businessUnit.id,
+          itemCode: `BUNDLE-${project.toUpperCase()}-${name === "ケース" ? "CASE" : name === "フィルム" ? "FILM" : "CLEAN"}`,
+          name: `セット用${name}-${project}`,
+          managementType: "QUANTITY",
+          managementCostMethod: "MOVING_AVERAGE",
+          defaultStorageLocationId: (
+            await db.storageLocation.findFirstOrThrow({
+              where: { workspaceId: readyWorkspace.id, code: "MAIN" },
+            })
+          ).id,
+          variants: {
+            create: {
+              workspaceId: readyWorkspace.id,
+              variantCode: `B-${project.toUpperCase()}-${name === "ケース" ? "CASE" : name === "フィルム" ? "FILM" : "CLEAN"}`,
+            },
+          },
+        },
+        include: { variants: true },
+      });
+      const variant = item.variants[0]!;
+      const lot = await db.inventoryLot.create({
+        data: {
+          itemVariantId: variant.id,
+          trackingMode: "QUANTITY",
+          receivedDate: new Date("2026-01-01T00:00:00Z"),
+          receivedQuantity: quantity,
+          remainingQuantity: quantity,
+          landedCostTotalJpy: BigInt(quantity * cost),
+          unitCostJpy: `${cost}.000000`,
+          storageLocationId: item.defaultStorageLocationId!,
+        },
+      });
+      await db.inventoryCostBalance.create({
+        data: {
+          itemVariantId: variant.id,
+          businessUnitId: businessUnit.id,
+          trackingMode: "QUANTITY",
+          quantity,
+          carryingCostTotalJpy: BigInt(quantity * cost),
+          averageUnitCostJpy: `${cost}.000000`,
+        },
+      });
+      const key = randomUUID();
+      const operation = await db.inventoryOperation.create({
+        data: {
+          workspaceId: readyWorkspace.id,
+          businessUnitId: businessUnit.id,
+          operatorId: operator.id,
+          operationType: "ADJUSTMENT_IN",
+          sourceType: "e2e_seed",
+          sourceId: key,
+          idempotencyKey: key,
+          occurredAt: new Date("2026-01-01T00:00:00Z"),
+        },
+      });
+      await db.stockMovement.create({
+        data: {
+          operationId: operation.id,
+          itemVariantId: variant.id,
+          inventoryLotId: lot.id,
+          movementType: "ADJUSTMENT_IN",
+          quantity,
+          costTotalJpy: BigInt(quantity * cost),
+          movementAt: operation.occurredAt,
+          businessUnitId: businessUnit.id,
+          storageLocationToId: item.defaultStorageLocationId!,
+          sourceType: "e2e_seed",
+          sourceId: key,
+          idempotencyKey: `${key}:0`,
+          operatorId: operator.id,
+        },
+      });
+    }
+  }
 
   // 50件固定ページングの境界を、毎回同じ空DBから検証するためのデータ。
   for (let index = 1; index <= 51; index += 1) {

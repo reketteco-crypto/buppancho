@@ -1,11 +1,15 @@
 node_modules/
 .pnpm-store/
 .next/
+.next-phase2/
+.next-redesign/
+.next-redesign-build/
 generated/
 coverage/
 playwright-report/
 test-results/
 .env
+.env.*
 .env.local
 .env.*.local
 !.env.example
@@ -15,3 +19,7 @@ backups-mirror/
 secrets/
 backup-status/
 tsconfig.tsbuildinfo
+.tmp/
+
+.next-money-history/
+.next-validation/

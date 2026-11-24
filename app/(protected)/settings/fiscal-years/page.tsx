@@ -1,3 +1,4 @@
+import { MasterForm } from "@/components/forms/master-form";
 import { requireSession } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import {
@@ -50,7 +51,7 @@ export default async function FiscalYearsPage() {
 
       <section className="card stack" style={{ marginBottom: 24 }}>
         <h2>翌年度をコピー</h2>
-        <form action={copyFiscalYearAction} className="context-form">
+        <MasterForm action={copyFiscalYearAction} className="context-form">
           <label className="field">
             <span>コピー元年度</span>
             <select name="sourceYear" defaultValue={newestYear}>
@@ -75,7 +76,7 @@ export default async function FiscalYearsPage() {
           <button className="button" disabled={years.length === 0}>
             年度設定と割当をコピー
           </button>
-        </form>
+        </MasterForm>
         <p className="muted">
           コピー先に設定がある場合は実行しません。コピー元年度は変更されません。
         </p>
@@ -93,7 +94,13 @@ export default async function FiscalYearsPage() {
             </div>
             <div className="card-grid">
               {yearProfiles.map((profile) => (
-                <form action={saveFiscalYearProfileAction} className="card stack" key={profile.id}>
+                <MasterForm
+                  action={saveFiscalYearProfileAction}
+                  alternateActions={{ status: updateFiscalYearStatusAction }}
+                  className="card stack"
+                  key={profile.id}
+                >
+                  <input type="hidden" name="revision" value={profile.revision} />
                   <input type="hidden" name="year" value={year} />
                   <input type="hidden" name="reportingEntityId" value={profile.reportingEntityId} />
                   {profile.status === "CLOSING" ? (
@@ -117,7 +124,7 @@ export default async function FiscalYearsPage() {
                       {profile.status === "OPEN" ? (
                         <button
                           className="button secondary"
-                          formAction={updateFiscalYearStatusAction}
+                          data-master-action="status"
                           name="status"
                           value="CLOSING"
                         >
@@ -126,7 +133,7 @@ export default async function FiscalYearsPage() {
                       ) : (
                         <button
                           className="button secondary"
-                          formAction={updateFiscalYearStatusAction}
+                          data-master-action="status"
                           name="status"
                           value="OPEN"
                         >
@@ -136,7 +143,7 @@ export default async function FiscalYearsPage() {
                       {profile.status === "CLOSING" ? (
                         <button
                           className="button danger"
-                          formAction={updateFiscalYearStatusAction}
+                          data-master-action="status"
                           name="status"
                           value="LOCKED"
                         >
@@ -146,7 +153,7 @@ export default async function FiscalYearsPage() {
                       <input type="hidden" name="id" value={profile.id} />
                     </div>
                   ) : null}
-                </form>
+                </MasterForm>
               ))}
             </div>
 
@@ -181,10 +188,22 @@ export default async function FiscalYearsPage() {
                             <span className="muted">{unit.code}</span>
                           </td>
                           <td colSpan={3}>
-                            <form
+                            <MasterForm
                               action={saveBusinessUnitAssignmentAction}
                               className="assignment-form"
                             >
+                              <input
+                                type="hidden"
+                                name="revision"
+                                value={assignment?.revision ?? "NEW"}
+                              />
+                              <input
+                                type="hidden"
+                                name="fiscalVersions"
+                                value={JSON.stringify(
+                                  Object.fromEntries(yearProfiles.map((p) => [p.id, p.revision])),
+                                )}
+                              />
                               <input type="hidden" name="year" value={year} />
                               <input type="hidden" name="businessUnitId" value={unit.id} />
                               {selectedProfile?.status === "CLOSING" ? (
@@ -223,7 +242,7 @@ export default async function FiscalYearsPage() {
                               >
                                 {assignment ? "割当を変更" : "割当を追加"}
                               </button>
-                            </form>
+                            </MasterForm>
                           </td>
                         </tr>
                       );
@@ -238,7 +257,8 @@ export default async function FiscalYearsPage() {
 
       <section className="card stack" style={{ marginTop: 28 }}>
         <h2>申告主体の年度設定を追加</h2>
-        <form action={saveFiscalYearProfileAction} className="stack">
+        <MasterForm action={saveFiscalYearProfileAction} className="stack">
+          <input type="hidden" name="revision" value="NEW" />
           <div className="setup-grid">
             <label className="field">
               <span>年度</span>
@@ -264,7 +284,7 @@ export default async function FiscalYearsPage() {
           </div>
           <FiscalProfileFields />
           <button className="button">年度設定を保存</button>
-        </form>
+        </MasterForm>
       </section>
       <p className="notice" style={{ marginTop: 20 }}>
         所得の帰属は自由に選べるものではありません。実際の経営実態と届出を確認して設定してください。

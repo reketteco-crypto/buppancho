@@ -1,110 +1,128 @@
 import Link from "next/link";
-import { requireInventoryContext } from "@/lib/inventory/context";
+import { Plus, ChevronRight } from "lucide-react";
+import { commerceContext } from "@/lib/commerce/view";
 import { formatYen } from "@/lib/inventory/money";
+import { transactionScope } from "@/lib/commerce/scope";
 
-const status = {
-  DRAFT: "下書き",
-  FINALIZED: "確定",
-  CANCELLED: "取消",
-  ORDERED: "発注済み",
-  PAID: "支払済み",
-  PARTIALLY_RECEIVED: "一部入庫",
-  RECEIVED: "入庫済み",
-  COSTING: "原価計算中",
-} as const;
-export default async function PurchasesPage() {
-  const context = await requireInventoryContext();
-  const rows = await context.db.purchase.findMany({
-    where: { workspaceId: context.workspaceId, businessUnitId: context.businessUnitId },
-    include: {
-      supplier: true,
-      lines: {
-        select: {
-          trackingMode: true,
-          orderedQuantity: true,
-          sourceName: true,
-          itemVariant: { select: { inventoryItem: { select: { name: true } } } },
-        },
-        orderBy: { createdAt: "asc" },
+export default async function PurchasesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; status?: string }>;
+}) {
+  const c = await commerceContext(),
+    query = await searchParams;
+  const q = (query.q ?? "").trim().slice(0, 100),
+    status = ["ORDERED", "PARTIALLY_RECEIVED", "RECEIVED"].includes(query.status ?? "")
+      ? query.status
+      : undefined;
+  const scope = transactionScope(c);
+  const [documents, legacy] = await Promise.all([
+    c.db.purchaseDocument.findMany({
+      where: {
+        ...scope,
+        ...(status ? { status } : {}),
+        ...(q
+          ? {
+              OR: [
+                { supplierName: { contains: q, mode: "insensitive" } },
+                { code: { contains: q, mode: "insensitive" } },
+                { lines: { some: { name: { contains: q, mode: "insensitive" } } } },
+              ],
+            }
+          : {}),
       },
-    },
-    orderBy: [{ purchasedDate: "desc" }, { createdAt: "desc" }],
-    take: 100,
-  });
+      include: { lines: { orderBy: { position: "asc" } } },
+      orderBy: [{ purchasedDate: "desc" }, { createdAt: "desc" }],
+      take: 100,
+    }),
+    c.db.purchase.findMany({
+      where: scope,
+      include: { supplier: true },
+      orderBy: { purchasedDate: "desc" },
+      take: 50,
+    }),
+  ]);
+  const labels: Record<string, string> = {
+    ORDERED: "受取待ち",
+    PARTIALLY_RECEIVED: "一部受取",
+    RECEIVED: "受取済み",
+    CANCELLED: "取消済み",
+  };
   return (
-    <div className="page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Purchases</p>
-          <h1>仕入一覧</h1>
-          <p className="muted">下書き、確定、取消の履歴を確認できます。</p>
-        </div>
-        <div className="status-actions">
-          <Link className="button" href="/purchases/new">
-            仕入れ登録
-          </Link>
-        </div>
+    <div className="commerce">
+      <header className="commerce-heading">
+        <h1>購入</h1>
+        <Link className="button" href="/purchases/new">
+          <Plus size={16} />
+          購入を記録
+        </Link>
       </header>
-      <div className="card table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>仕入番号</th>
-              <th>仕入日</th>
-              <th>内容</th>
-              <th>仕入先</th>
-              <th>内訳</th>
-              <th>総額</th>
-              <th>状態</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const names = [
-                ...new Set(
-                  row.lines.map((line) => line.itemVariant.inventoryItem.name || line.sourceName),
-                ),
-              ];
-              const quantityCount = row.lines.reduce(
-                (sum, line) => sum + (line.trackingMode === "QUANTITY" ? line.orderedQuantity : 0),
-                0,
-              );
-              const uniqueCount = row.lines.filter((line) => line.trackingMode === "UNIQUE").length;
-              const breakdown = [
-                quantityCount ? `数量 ${quantityCount.toLocaleString("ja-JP")}個` : "",
-                uniqueCount ? `個体 ${uniqueCount.toLocaleString("ja-JP")}点` : "",
-              ]
-                .filter(Boolean)
-                .join(" / ");
-              return (
-                <tr key={row.id}>
-                  <td>
-                    <Link href={`/purchases/${row.id}`}>
-                      <strong>{row.purchaseCode}</strong>
-                    </Link>
-                  </td>
-                  <td>{row.purchasedDate.toISOString().slice(0, 10)}</td>
-                  <td className="purchase-summary">
-                    <strong>{names.slice(0, 2).join("、") || "商品名なし"}</strong>
-                    {names.length > 2 ? <small>ほか{names.length - 2}商品</small> : null}
-                    {row.orderNumber ? <small>注文番号: {row.orderNumber}</small> : null}
-                  </td>
-                  <td>{row.supplier.name}</td>
-                  <td>
-                    {breakdown || `${row.lines.length}明細`}
-                    <small>{row.lines.length}明細</small>
-                  </td>
-                  <td>¥{formatYen(row.purchaseTotalJpy)}</td>
-                  <td>
-                    <span className="status-chip">{status[row.status]}</span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {rows.length === 0 ? <p className="empty-state">仕入れはまだありません。</p> : null}
+      <div className="commerce-action-row">
+        <Link className="commerce-text-button" href="/purchases/deliveries/new">
+          複数の購入をまとめて配送
+        </Link>
       </div>
+      <form className="commerce-toolbar">
+        <input
+          aria-label="購入を検索"
+          name="q"
+          defaultValue={q}
+          placeholder="商品名・取引先で検索"
+        />
+        <select aria-label="受取状況" name="status" defaultValue={status ?? ""}>
+          <option value="">すべて</option>
+          <option value="ORDERED">受取待ち</option>
+          <option value="PARTIALLY_RECEIVED">一部受取</option>
+          <option value="RECEIVED">受取済み</option>
+        </select>
+        <button className="button secondary" type="submit">
+          絞り込む
+        </button>
+      </form>
+      {documents.length ? (
+        <div className="commerce-list">
+          {documents.map((p) => (
+            <Link className="commerce-row" key={p.id} href={`/purchases/${p.id}`}>
+              <div>
+                <strong>{p.supplierName}</strong>
+                <span className="commerce-secondary">
+                  {p.purchasedDate.toISOString().slice(0, 10)} ·{" "}
+                  {p.lines.map((l) => l.name).join("、")}
+                </span>
+              </div>
+              <span className={`commerce-badge${p.status !== "RECEIVED" ? " pending" : ""}`}>
+                {labels[p.status]}
+              </span>
+              <span className="commerce-number">
+                ¥{formatYen(p.totalJpy)}
+                {!p.costFinal && <small>原価は暫定</small>}
+              </span>
+              <ChevronRight size={16} />
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <div className="commerce-empty">
+          <h2>{q || status ? "該当する購入はありません" : "購入を記録しましょう"}</h2>
+          <p>商品・資材・備品を、ひとつの購入にまとめられます。</p>
+        </div>
+      )}
+      {legacy.length > 0 && (
+        <details className="commerce-disclosure">
+          <summary>以前の購入記録</summary>
+          <div className="commerce-list">
+            {legacy.map((p) => (
+              <Link className="commerce-row" href={`/purchases/${p.id}`} key={p.id}>
+                <div>
+                  <strong>{p.supplier.name}</strong>
+                  <span className="commerce-secondary">{p.purchaseCode}</span>
+                </div>
+                <span>{formatYen(p.purchaseTotalJpy)}</span>
+              </Link>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }

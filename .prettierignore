@@ -1,9 +1,15 @@
 .next
+.next-phase2
+.next-redesign
+.next-redesign-build
+.tmp
 node_modules
 generated
 coverage
 playwright-report
 test-results
 pnpm-lock.yaml
-spec
 .pnpm-store
+
+.next-money-history/
+.next-validation/

@@ -1,8 +1,14 @@
+import { MasterForm } from "@/components/forms/master-form";
+import { SettingsBackLink } from "@/components/settings-back-link";
 import { requireInventoryContext } from "@/lib/inventory/context";
 import { StorageLocationForm } from "@/components/forms/phase1-master-forms";
 import { updateStorageLocationAction } from "@/app/inventory/actions";
 
-export default async function StorageLocationsPage() {
+export default async function StorageLocationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ returnTo?: string }>;
+}) {
   const context = await requireInventoryContext();
   const rows = await context.db.storageLocation.findMany({
     where: { workspaceId: context.workspaceId },
@@ -11,6 +17,7 @@ export default async function StorageLocationsPage() {
   });
   return (
     <div className="page">
+      <SettingsBackLink returnTo={(await searchParams).returnTo} />
       <header className="page-header">
         <div>
           <p className="eyebrow">Master</p>
@@ -27,7 +34,8 @@ export default async function StorageLocationsPage() {
           <h2>登録済み</h2>
           <div className="stack">
             {rows.map((row) => (
-              <form action={updateStorageLocationAction} className="compact-row" key={row.id}>
+              <MasterForm action={updateStorageLocationAction} className="compact-row" key={row.id}>
+                <input type="hidden" name="revision" value={row.revision} />
                 <input type="hidden" name="id" value={row.id} />
                 <div>
                   <strong>{row.code}</strong>
@@ -39,7 +47,7 @@ export default async function StorageLocationsPage() {
                   有効
                 </label>
                 <button className="button secondary">保存</button>
-              </form>
+              </MasterForm>
             ))}
           </div>
         </section>

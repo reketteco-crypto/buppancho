@@ -14,7 +14,7 @@ describeDb("PostgreSQL constraints", () => {
     await client?.end();
   });
 
-  it("contains phase 0 and phase 1 domain tables but no later-phase tables", async () => {
+  it("contains phase 0 through phase 2 domain tables but no accounting tables", async () => {
     const result = await client.query<{ table_name: string }>(
       "SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name",
     );
@@ -24,8 +24,31 @@ describeDb("PostgreSQL constraints", () => {
     expect(names).toContain("inventory_item");
     expect(names).toContain("stock_movement");
     expect(names).toContain("purchase");
-    expect(names).not.toContain("sales_order");
+    expect(names).toContain("sales_sku");
+    expect(names).toContain("listing");
+    expect(names).toContain("sales_order");
+    expect(names).toContain("inventory_reservation");
     expect(names).not.toContain("journal_entry");
+  });
+
+  it("enforces phase 2 quantities, rates, idempotency, and component target constraints", async () => {
+    const constraints = await client.query<{ conname: string }>(
+      `SELECT conname FROM pg_constraint WHERE conname IN (
+        'sales_sku_component_target_check','sales_sku_component_quantity_check',
+        'listing_quantity_check','listing_fee_check','sales_order_line_quantity_check'
+      )`,
+    );
+    expect(constraints.rows.map((row) => row.conname).sort()).toEqual([
+      "listing_fee_check",
+      "listing_quantity_check",
+      "sales_order_line_quantity_check",
+      "sales_sku_component_quantity_check",
+      "sales_sku_component_target_check",
+    ]);
+    const indexes = await client.query<{ indexname: string }>(
+      "SELECT indexname FROM pg_indexes WHERE indexname='inventory_reservation_unique_active_idx'",
+    );
+    expect(indexes.rows).toHaveLength(1);
   });
 
   it("rejects overlapping reporting-entity assignments for one business unit", async () => {

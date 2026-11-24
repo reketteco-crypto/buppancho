@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ListDisplayState } from "@/components/list-display-state";
 import { Prisma } from "@/generated/prisma/client";
 import { requireInventoryContext } from "@/lib/inventory/context";
 import { formatYen } from "@/lib/inventory/money";
@@ -68,6 +69,7 @@ export default async function InventoryPage({
             JOIN inventory_lot AS lot ON lot.id = movement.inventory_lot_id
             WHERE movement.business_unit_id = ${context.businessUnitId}::uuid
               AND lot.tracking_mode = 'quantity'
+              AND movement.movement_type NOT IN ('return_defective','return_disposal')
               AND movement.storage_location_to_id IS NOT NULL
             UNION ALL
             SELECT movement.item_variant_id,
@@ -132,6 +134,7 @@ export default async function InventoryPage({
     include: {
       variants: {
         include: {
+          inventoryReservations: { where: { status: "RESERVED" }, select: { quantity: true } },
           costBalances: { where: { businessUnitId: context.businessUnitId } },
           inventoryLots: { where: { remainingQuantity: { gt: 0 } }, select: { costStatus: true } },
         },
@@ -150,6 +153,9 @@ export default async function InventoryPage({
 
   return (
     <div className="page">
+      <ListDisplayState
+        context={`${context.workspaceId}:${context.operatorId}:${context.businessUnitId}:${context.fiscalYear.year}`}
+      />
       <header className="page-header">
         <div>
           <p className="eyebrow">Phase 1 / Inventory</p>
@@ -218,12 +224,36 @@ export default async function InventoryPage({
             {currentPage} / {totalPages}ページ
           </span>
         </div>
-        <table>
+        <div className="mobile-records">
+          {items.map((item) => {
+            const quantity = item.variants.reduce(
+              (s, v) => s + v.costBalances.reduce((s, b) => s + b.quantity, 0),
+              0,
+            );
+            const held = item.variants.reduce(
+              (s, v) => s + v.inventoryReservations.reduce((s, r) => s + r.quantity, 0),
+              0,
+            );
+            return (
+              <Link key={item.id} className="card card-link" href={`/inventory/${item.id}`}>
+                <h2>{item.name}</h2>
+                <p>
+                  出品に使える {Math.max(0, quantity - held)} ／ 確保 {held}
+                </p>
+                <p className="muted">
+                  管理上の残数 {quantity}・{item.status === "ACTIVE" ? "有効" : "無効"}
+                </p>
+                <span>商品を確認して出品する →</span>
+              </Link>
+            );
+          })}
+        </div>
+        <table className="desktop-records">
           <thead>
             <tr>
               <th>商品</th>
               <th>種別</th>
-              <th>現在庫</th>
+              <th>出品に使える / 確保 / 管理残数</th>
               <th>管理原価</th>
               <th>平均・個別単価</th>
               <th>原価状態</th>
@@ -251,6 +281,10 @@ export default async function InventoryPage({
                 0n,
               );
               const average = quantity ? cost / BigInt(quantity) : 0n;
+              const held = item.variants.reduce(
+                (s, v) => s + v.inventoryReservations.reduce((s, r) => s + r.quantity, 0),
+                0,
+              );
               const provisional = item.variants.some((variant) =>
                 variant.inventoryLots.some((lot) => lot.costStatus === "PROVISIONAL"),
               );
@@ -265,7 +299,9 @@ export default async function InventoryPage({
                     </Link>
                   </td>
                   <td>{item.managementType === "QUANTITY" ? "数量" : "個体"}</td>
-                  <td>{quantity.toLocaleString("ja-JP")}</td>
+                  <td>
+                    {Math.max(0, quantity - held)} / {held} / {quantity.toLocaleString("ja-JP")}
+                  </td>
                   <td>¥{formatYen(cost)}</td>
                   <td>¥{formatYen(average)}</td>
                   <td>

@@ -15,7 +15,12 @@ export default async function ProtectedLayout({ children }: { children: React.Re
         businessUnit: { workspaceId, active: true },
         fiscalYearProfile: { reportingEntity: { workspaceId } },
       },
-      include: { businessUnit: true, fiscalYearProfile: { select: { year: true } } },
+      include: {
+        businessUnit: true,
+        fiscalYearProfile: {
+          select: { year: true, reportingEntity: { select: { displayName: true } } },
+        },
+      },
       orderBy: [{ fiscalYearProfile: { year: "desc" } }, { businessUnit: { createdAt: "asc" } }],
     }),
   ]);
@@ -25,6 +30,7 @@ export default async function ProtectedLayout({ children }: { children: React.Re
       operators={operators}
       assignments={assignments.map((item) => ({
         year: item.fiscalYearProfile.year,
+        reportingEntityName: item.fiscalYearProfile.reportingEntity.displayName,
         businessUnit: item.businessUnit,
         defaultOperatorId: item.defaultOperatorId,
       }))}

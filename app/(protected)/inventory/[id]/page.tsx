@@ -1,8 +1,16 @@
+import { MasterForm } from "@/components/forms/master-form";
 import Link from "next/link";
+import { ListBackLink } from "@/components/list-display-state";
 import { notFound } from "next/navigation";
 import { requireInventoryContext } from "@/lib/inventory/context";
 import { formatYen } from "@/lib/inventory/money";
 import { updateInventoryItemAction } from "@/app/inventory/actions";
+import { effectiveCosts } from "@/lib/inventory/effective-cost";
+import {
+  effectiveLotReceiptDates,
+  effectiveOperationTimeline,
+  eventDay,
+} from "@/lib/inventory/event-dates";
 
 const movementLabel: Record<string, string> = {
   RECEIPT: "入庫",
@@ -13,14 +21,21 @@ const movementLabel: Record<string, string> = {
   PERSONAL_USE: "私用",
   ADJUSTMENT_IN: "在庫増加",
   ADJUSTMENT_OUT: "在庫減少",
+  SALE_OUT: "取引完了による出庫",
+  RETURN_IN: "良品返品",
+  RETURN_DEFECTIVE: "返品不良（販売不可）",
+  RETURN_DISPOSAL: "返品廃棄",
 };
 
 export default async function InventoryItemDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ recorded?: string }>;
 }) {
   const { id } = await params;
+  const recorded = (await searchParams).recorded === "1";
   const context = await requireInventoryContext();
   const item = await context.db.inventoryItem.findFirst({
     where: { id, workspaceId: context.workspaceId, businessUnitId: context.businessUnitId },
@@ -28,6 +43,7 @@ export default async function InventoryItemDetailPage({
       defaultStorageLocation: true,
       variants: {
         include: {
+          inventoryReservations: { where: { status: "RESERVED" }, include: { listing: true } },
           costBalances: { where: { businessUnitId: context.businessUnitId } },
           inventoryLots: { include: { storageLocation: true }, orderBy: { receivedDate: "desc" } },
           uniqueStockUnits: {
@@ -35,15 +51,57 @@ export default async function InventoryItemDetailPage({
             orderBy: { individualCode: "asc" },
           },
           stockMovements: {
-            include: { storageLocationFrom: true, storageLocationTo: true, operator: true },
+            include: {
+              storageLocationFrom: true,
+              storageLocationTo: true,
+              operator: true,
+              operation: true,
+            },
             orderBy: { movementAt: "desc" },
-            take: 100,
           },
         },
       },
     },
   });
   if (!item) notFound();
+  const observations = await context.db.stocktakeObservation.findMany({
+    where: {
+      workspaceId: context.workspaceId,
+      businessUnitId: context.businessUnitId,
+      itemVariantId: { in: item.variants.map((v) => v.id) },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const countOperations = await context.db.inventoryOperation.findMany({
+    where: {
+      workspaceId: context.workspaceId,
+      businessUnitId: context.businessUnitId,
+      id: { in: observations.map((s) => s.operationId) },
+    },
+  });
+  const countDates = await effectiveOperationTimeline(context.db, countOperations);
+  const [eventTimeline, receiptDates] = await Promise.all([
+    effectiveOperationTimeline(
+      context.db,
+      item.variants.flatMap((v) => v.stockMovements.map((m) => m.operation)),
+    ),
+    effectiveLotReceiptDates(
+      context.db,
+      item.variants.flatMap((v) => v.inventoryLots.map((l) => l.id)),
+    ),
+  ]);
+  const defective = await context.db.stockMovement.findMany({
+    where: {
+      itemVariant: { inventoryItemId: item.id },
+      businessUnitId: context.businessUnitId,
+      movementType: "RETURN_DEFECTIVE",
+    },
+  });
+  const defectiveCost = await effectiveCosts(context.db, "MOVEMENT", defective);
+  const defectiveQuantity = defective.reduce((s, m) => s + m.quantity, 0);
+  const held = item.variants
+    .flatMap((v) => v.inventoryReservations)
+    .reduce((s, r) => s + r.quantity, 0);
   const quantity = item.variants.reduce(
     (sum, variant) =>
       sum + variant.costBalances.reduce((subtotal, balance) => subtotal + balance.quantity, 0),
@@ -66,8 +124,55 @@ export default async function InventoryItemDetailPage({
     },
     orderBy: { code: "asc" },
   });
+  const salesSkus = await context.db.salesSku.findMany({
+    where: {
+      workspaceId: context.workspaceId,
+      businessUnitId: context.businessUnitId,
+      components: {
+        some: {
+          OR: [
+            { itemVariant: { inventoryItemId: item.id } },
+            { uniqueStockUnit: { itemVariant: { inventoryItemId: item.id } } },
+          ],
+        },
+      },
+    },
+    include: { listings: true, orderLines: { include: { salesOrder: true } } },
+    orderBy: { createdAt: "desc" },
+  });
   return (
     <div className="page">
+      <section className="card">
+        <p>
+          出品に使える：{Math.max(0, quantity - held)} ／ 出品・注文用に確保：{held} ／
+          管理上の残数：{quantity}
+        </p>
+        <p className="muted">
+          管理残数は実際に手元にある数とは限りません。確保中には発送済み商品を含む場合があります。
+        </p>
+        {item.variants
+          .flatMap((v) => v.inventoryReservations)
+          .filter((r) => r.listingId)
+          .map((r) => (
+            <p key={r.id}>
+              <Link href={`/sales/listings/${r.listingId}`}>
+                確保中の出品 {r.listing?.externalListingId}・{r.quantity}個
+              </Link>
+            </p>
+          ))}
+      </section>
+      {!!defectiveQuantity && (
+        <section className="card">
+          <h2>販売不可の返品在庫</h2>
+          <p>
+            不良品：{defectiveQuantity}個 ／ 訂正反映後原価 ¥
+            {formatYen([...defectiveCost.values()].reduce((s, v) => s + v, 0n))}
+          </p>
+          <p className="muted">
+            上の出品可能数・販売用原価には含めません。廃棄済みの返品とは別に記録しています。
+          </p>
+        </section>
+      )}
       <header className="page-header">
         <div>
           <p className="eyebrow">{item.itemCode}</p>
@@ -77,14 +182,46 @@ export default async function InventoryItemDetailPage({
           </p>
         </div>
         <div className="status-actions">
-          <Link className="button secondary" href="/inventory">
-            一覧へ
+          <Link className="button" href={`/sales/listings/new?item=${item.id}`}>
+            この商品を出品する
           </Link>
+          <ListBackLink
+            context={`${context.workspaceId}:${context.operatorId}:${context.businessUnitId}:${context.fiscalYear.year}`}
+            className="button secondary"
+            href="/inventory"
+          >
+            一覧へ
+          </ListBackLink>
           <Link className="button" href="/inventory/operations/new">
             在庫移動
           </Link>
+          <Link className="button secondary" href={`/inventory/stocktake/new?item=${item.id}`}>
+            数えた数量を訂正
+          </Link>
         </div>
       </header>
+      {recorded && (
+        <p role="status" className="message success">
+          在庫操作を記録しました。在庫数・保管場所と履歴をご確認ください。
+        </p>
+      )}
+      {observations.length > 0 && (
+        <section className="card form-stack">
+          <h2>実測数量の確認・訂正履歴</h2>
+          {observations.map((s) => (
+            <article key={s.id}>
+              <p>
+                {countDates.get(s.operationId)?.date}：帳簿 {s.bookQuantity}個 → 実測{" "}
+                {s.countedQuantity}個（差 {s.difference > 0 ? "+" : ""}
+                {s.difference}個）
+              </p>
+              <Link href={`/inventory/events/${s.operationId}/date`}>
+                記録日と訂正履歴を確認する
+              </Link>
+            </article>
+          ))}
+        </section>
+      )}
       <div className="metric-grid">
         <div className="card metric">
           <span>現在庫</span>
@@ -117,7 +254,12 @@ export default async function InventoryItemDetailPage({
         </dl>
         <details style={{ marginTop: 18 }}>
           <summary>基本情報を編集</summary>
-          <form action={updateInventoryItemAction} className="stack" style={{ marginTop: 16 }}>
+          <MasterForm
+            action={updateInventoryItemAction}
+            className="stack"
+            style={{ marginTop: 16 }}
+          >
+            <input type="hidden" name="revision" value={item.revision} />
             <input type="hidden" name="id" value={item.id} />
             <div className="form-grid">
               <div className="field">
@@ -168,7 +310,7 @@ export default async function InventoryItemDetailPage({
               有効
             </label>
             <button className="button">基本情報を保存</button>
-          </form>
+          </MasterForm>
         </details>
       </section>
       <section className="card section-block">
@@ -265,7 +407,9 @@ export default async function InventoryItemDetailPage({
                   .flatMap((variant) => variant.inventoryLots)
                   .map((lot) => (
                     <tr key={lot.id}>
-                      <td>{lot.receivedDate.toISOString().slice(0, 10)}</td>
+                      <td>
+                        {receiptDates.get(lot.id) ?? lot.receivedDate.toISOString().slice(0, 10)}
+                      </td>
                       <td>{lot.receivedQuantity}</td>
                       <td>{lot.remainingQuantity}</td>
                       <td>¥{formatYen(lot.landedCostTotalJpy)}</td>
@@ -277,6 +421,48 @@ export default async function InventoryItemDetailPage({
           </div>
         </section>
       ) : null}
+      <section className="card section-block">
+        <div className="section-heading">
+          <div>
+            <h2>出品・完了履歴</h2>
+            <p className="muted">セットの構成品として使った記録も表示します。</p>
+          </div>
+          <Link className="button secondary" href={`/sales/listings/new?item=${item.id}`}>
+            この商品を出品する
+          </Link>
+        </div>
+        <ul className="activity-list">
+          {salesSkus.flatMap((sku) =>
+            sku.listings.map((listing) => (
+              <li key={listing.id}>
+                <Link href={`/sales/listings/${listing.id}`}>
+                  <strong>{listing.displayName ?? sku.name}</strong>
+                  <span>
+                    出品 ¥{formatYen(listing.currentPriceJpy)}・
+                    {listing.externalListingId ?? "商品ID未確認"}
+                  </span>
+                </Link>
+              </li>
+            )),
+          )}
+          {salesSkus.flatMap((sku) =>
+            sku.orderLines
+              .filter((line) => line.salesOrder.completedAt)
+              .map((line) => (
+                <li key={line.id}>
+                  <Link href={`/sales/orders/${line.salesOrderId}`}>
+                    <strong>{line.displayName ?? sku.name}</strong>
+                    <span>完了実績 ¥{formatYen(line.salesOrder.grossSalesJpy)}</span>
+                  </Link>
+                </li>
+              )),
+          )}
+        </ul>
+        {!salesSkus.some(
+          (sku) =>
+            sku.listings.length || sku.orderLines.some((line) => line.salesOrder.completedAt),
+        ) && <p className="empty-state">出品・完了の記録はまだありません。</p>}
+      </section>
       <section className="card section-block">
         <h2>在庫移動</h2>
         <div className="table-wrap">
@@ -294,11 +480,27 @@ export default async function InventoryItemDetailPage({
             <tbody>
               {item.variants
                 .flatMap((variant) => variant.stockMovements)
-                .sort((a, b) => b.movementAt.getTime() - a.movementAt.getTime())
+                .sort(
+                  (a, b) =>
+                    eventTimeline
+                      .get(b.operationId)!
+                      .date.localeCompare(eventTimeline.get(a.operationId)!.date) ||
+                    b.movementAt.getTime() - a.movementAt.getTime(),
+                )
+                .slice(0, 100)
                 .map((movement) => (
                   <tr key={movement.id}>
                     <td>
-                      {movement.movementAt.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
+                      <p>{eventTimeline.get(movement.operationId)!.date}</p>
+                      {eventTimeline.get(movement.operationId)!.date !==
+                        eventDay(movement.movementAt) && (
+                        <small>当初：{eventDay(movement.movementAt)}</small>
+                      )}
+                      <p>
+                        <Link href={`/inventory/events/${movement.operationId}/date`}>
+                          日付を訂正
+                        </Link>
+                      </p>
                     </td>
                     <td>{movementLabel[movement.movementType] ?? movement.movementType}</td>
                     <td>{movement.quantity}</td>

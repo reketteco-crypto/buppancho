@@ -1,4 +1,3 @@
-import type { Prisma } from "@/generated/prisma/client";
 import { getDb } from "@/lib/db/client";
 import { requireSession } from "@/lib/auth/session";
 
@@ -45,13 +44,7 @@ export async function requireInventoryContext(date?: Date) {
   };
 }
 
-export async function lockInventoryTarget(
-  tx: Prisma.TransactionClient,
-  variantId: string,
-  businessUnitId: string,
-) {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${variantId}:${businessUnitId}`}, 0))`;
-}
+export { lockInventoryTarget } from "@/lib/inventory/domain-lock";
 
 export function tokyoDate(value: string): Date {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("日付を確認してください。");

@@ -1,6 +1,12 @@
 import type { Prisma } from "@/generated/prisma/client";
 
-const prefix = { ITEM: "ITEM", VARIANT: "VAR", UNIT: "UNIT", PURCHASE: "PUR" } as const;
+const prefix = {
+  ITEM: "ITEM",
+  VARIANT: "VAR",
+  UNIT: "UNIT",
+  PURCHASE: "PUR",
+  SALES_SKU: "SKU",
+} as const;
 
 export async function nextWorkspaceCode(
   tx: Prisma.TransactionClient,

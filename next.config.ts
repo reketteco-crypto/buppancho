@@ -6,6 +6,19 @@ const allowedOrigins =
     .filter(Boolean) ?? [];
 
 const nextConfig: NextConfig = {
+  // Keep the new acceptance server's build artifacts separate from the mobile test server.
+  distDir:
+    process.env.BUPPANCHO_TEST_INSTANCE === "validation"
+      ? ".next-validation"
+      : process.env.BUPPANCHO_TEST_INSTANCE === "money-history"
+        ? ".next-money-history"
+        : process.env.BUPPANCHO_TEST_INSTANCE === "redesign-build"
+          ? ".next-redesign-build"
+          : process.env.BUPPANCHO_TEST_INSTANCE === "redesign"
+            ? ".next-redesign"
+            : process.env.BUPPANCHO_TEST_INSTANCE === "phase2"
+              ? ".next-phase2"
+              : ".next",
   output: "standalone",
   poweredByHeader: false,
   // 開発ツールの表示がスマホ下部ナビと重なるため、画面上のインジケーターは表示しない。

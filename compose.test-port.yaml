@@ -1,0 +1,5 @@
+# Optional loopback port override. Existing named DB volume is preserved.
+services:
+  postgres-test:
+    ports: !override
+      - "127.0.0.1:${BUPPANCHO_TEST_POSTGRES_PORT:-55432}:5432"

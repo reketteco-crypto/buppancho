@@ -1,6 +1,18 @@
 "use server";
 
-import Decimal from "decimal.js";
+import { updateCatalogItem } from "@/lib/commerce/catalog-edit";
+
+import {
+  lockMasterDomain,
+  assertMasterVersion,
+  assertMasterCanDeactivate,
+} from "@/lib/settings/master-version";
+import { masterAction, type MasterResult } from "@/lib/settings/master-result";
+
+import { lockInventoryDomain } from "@/lib/inventory/domain-lock";
+
+import { checkWorkflowContext } from "@/lib/sales/workflow";
+
 import { Prisma } from "@/generated/prisma/client";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -9,15 +21,21 @@ import { assertTrustedOrigin } from "@/lib/auth/origin";
 import { writeAudit } from "@/lib/audit/write";
 import { nextWorkspaceCode } from "@/lib/inventory/codes";
 import { lockInventoryTarget, requireInventoryContext, tokyoDate } from "@/lib/inventory/context";
-import { averageUnitCost, movingAverageOutCost, parseYen } from "@/lib/inventory/money";
+import { averageUnitCost, parseYen } from "@/lib/inventory/money";
 import {
   inventoryItemSchema,
-  inventoryOperationSchema,
   parsePayload,
   quantityPurchaseSchema,
   unifiedPurchaseSchema,
   usedBundlePurchaseSchema,
 } from "@/lib/validation/inventory";
+
+async function rejectRetiredPurchaseWrite(): Promise<void> {
+  await requireInventoryContext();
+  throw new Error(
+    "仕入れ画面を開き直してください。保存結果を確認できる新しい操作へ切り替わりました。",
+  );
+}
 
 export type InventoryActionState = { error?: string; success?: string };
 
@@ -81,6 +99,7 @@ export async function createStorageLocationAction(
       throw new Error("現在の販売部門以外の保管場所は作成できません。");
     }
     await context.db.$transaction(async (tx) => {
+      await lockInventoryDomain(tx, context.businessUnitId);
       const row = await tx.storageLocation.create({
         data: {
           workspaceId: context.workspaceId,
@@ -106,68 +125,46 @@ export async function createStorageLocationAction(
   }
 }
 
-export async function updateStorageLocationAction(formData: FormData): Promise<void> {
-  await assertTrustedOrigin();
-  const context = await requireInventoryContext();
-  const parsed = z
-    .object({ id: z.string().uuid(), name: z.string().trim().min(1).max(80) })
-    .parse(Object.fromEntries(formData));
-  const existing = await context.db.storageLocation.findFirst({
-    where: { id: parsed.id, workspaceId: context.workspaceId },
-  });
-  if (!existing) throw new Error("保管場所が見つかりません。");
-  const active = formData.get("active") === "on";
-  if (!active) {
-    const [quantityRows, uniqueCount] = await Promise.all([
-      context.db.stockMovement.findMany({
-        where: {
-          itemVariant: { inventoryItem: { workspaceId: context.workspaceId } },
-          OR: [{ storageLocationFromId: existing.id }, { storageLocationToId: existing.id }],
-        },
-        select: {
-          movementType: true,
-          quantity: true,
-          storageLocationFromId: true,
-          storageLocationToId: true,
-        },
-      }),
-      context.db.uniqueStockUnit.count({
-        where: { storageLocationId: existing.id, status: "IN_STOCK" },
-      }),
-    ]);
-    const balance = quantityRows.reduce((sum, row) => {
-      if (row.movementType === "LOCATION_TRANSFER") {
-        return (
-          sum +
-          (row.storageLocationToId === existing.id ? row.quantity : 0) -
-          (row.storageLocationFromId === existing.id ? row.quantity : 0)
-        );
-      }
-      return (
-        sum +
-        (row.storageLocationToId === existing.id ? row.quantity : 0) +
-        (row.storageLocationFromId === existing.id ? row.quantity : 0)
+export async function updateStorageLocationAction(formData: FormData): Promise<MasterResult> {
+  return masterAction(async () => {
+    await assertTrustedOrigin();
+    const context = await requireInventoryContext();
+    const parsed = z
+      .object({ id: z.string().uuid(), name: z.string().trim().min(1).max(80) })
+      .parse(Object.fromEntries(formData));
+    const existing = await context.db.storageLocation.findFirst({
+      where: { id: parsed.id, workspaceId: context.workspaceId },
+    });
+    if (!existing) throw new Error("保管場所が見つかりません。");
+    const active = formData.get("active") === "on";
+    await context.db.$transaction(async (tx) => {
+      await lockMasterDomain(tx, context.workspaceId);
+      await assertMasterVersion(
+        tx,
+        context.workspaceId,
+        "storage_location",
+        existing.id,
+        formData.get("revision"),
       );
-    }, 0);
-    if (balance > 0 || uniqueCount > 0) throw new Error("在庫が残る保管場所は無効化できません。");
-  }
-  await context.db.$transaction(async (tx) => {
-    await tx.storageLocation.update({
-      where: { id: existing.id },
-      data: { name: parsed.name, active },
+      if (!active) await assertMasterCanDeactivate(tx, "storage_location", existing.id);
+      await lockInventoryDomain(tx, context.businessUnitId);
+      await tx.storageLocation.update({
+        where: { id: existing.id },
+        data: { name: parsed.name, active },
+      });
+      await writeAudit(tx, {
+        workspaceId: context.workspaceId,
+        userAccountId: context.session.userAccountId,
+        operatorId: context.operatorId,
+        action: "storage_location.update",
+        entityType: "storage_location",
+        entityId: existing.id,
+        before: { name: existing.name, active: existing.active },
+        after: { name: parsed.name, active },
+      });
     });
-    await writeAudit(tx, {
-      workspaceId: context.workspaceId,
-      userAccountId: context.session.userAccountId,
-      operatorId: context.operatorId,
-      action: "storage_location.update",
-      entityType: "storage_location",
-      entityId: existing.id,
-      before: { name: existing.name, active: existing.active },
-      after: { name: parsed.name, active },
-    });
+    revalidatePath("/settings/storage-locations");
   });
-  revalidatePath("/settings/storage-locations");
 }
 
 export async function createSupplierAction(
@@ -181,6 +178,7 @@ export async function createSupplierAction(
       .object({ name: z.string().trim().min(1).max(120), memo: z.string().trim().max(1000) })
       .parse(Object.fromEntries(formData));
     await context.db.$transaction(async (tx) => {
+      await lockInventoryDomain(tx, context.businessUnitId);
       const row = await tx.counterparty.create({
         data: { workspaceId: context.workspaceId, name: parsed.name, memo: parsed.memo || null },
       });
@@ -201,38 +199,49 @@ export async function createSupplierAction(
   }
 }
 
-export async function updateSupplierAction(formData: FormData): Promise<void> {
-  await assertTrustedOrigin();
-  const context = await requireInventoryContext();
-  const parsed = z
-    .object({
-      id: z.string().uuid(),
-      name: z.string().trim().min(1).max(120),
-      memo: z.string().trim().max(1000),
-    })
-    .parse(Object.fromEntries(formData));
-  const existing = await context.db.counterparty.findFirst({
-    where: { id: parsed.id, workspaceId: context.workspaceId, type: "SUPPLIER" },
-  });
-  if (!existing) throw new Error("仕入先が見つかりません。");
-  const active = formData.get("active") === "on";
-  await context.db.$transaction(async (tx) => {
-    await tx.counterparty.update({
-      where: { id: existing.id },
-      data: { name: parsed.name, memo: parsed.memo || null, active },
+export async function updateSupplierAction(formData: FormData): Promise<MasterResult> {
+  return masterAction(async () => {
+    await assertTrustedOrigin();
+    const context = await requireInventoryContext();
+    const parsed = z
+      .object({
+        id: z.string().uuid(),
+        name: z.string().trim().min(1).max(120),
+        memo: z.string().trim().max(1000),
+      })
+      .parse(Object.fromEntries(formData));
+    const existing = await context.db.counterparty.findFirst({
+      where: { id: parsed.id, workspaceId: context.workspaceId, type: "SUPPLIER" },
     });
-    await writeAudit(tx, {
-      workspaceId: context.workspaceId,
-      userAccountId: context.session.userAccountId,
-      operatorId: context.operatorId,
-      action: "counterparty.update",
-      entityType: "counterparty",
-      entityId: existing.id,
-      before: { name: existing.name, memo: existing.memo, active: existing.active },
-      after: { ...parsed, active },
+    if (!existing) throw new Error("仕入先が見つかりません。");
+    const active = formData.get("active") === "on";
+    await context.db.$transaction(async (tx) => {
+      await lockMasterDomain(tx, context.workspaceId);
+      await assertMasterVersion(
+        tx,
+        context.workspaceId,
+        "counterparty",
+        existing.id,
+        formData.get("revision"),
+      );
+      await lockInventoryDomain(tx, context.businessUnitId);
+      await tx.counterparty.update({
+        where: { id: existing.id },
+        data: { name: parsed.name, memo: parsed.memo || null, active },
+      });
+      await writeAudit(tx, {
+        workspaceId: context.workspaceId,
+        userAccountId: context.session.userAccountId,
+        operatorId: context.operatorId,
+        action: "counterparty.update",
+        entityType: "counterparty",
+        entityId: existing.id,
+        before: { name: existing.name, memo: existing.memo, active: existing.active },
+        after: { ...parsed, active },
+      });
     });
+    revalidatePath("/settings/suppliers");
   });
-  revalidatePath("/settings/suppliers");
 }
 
 export async function createInventoryItemAction(
@@ -259,6 +268,7 @@ export async function createInventoryItemAction(
       if (!location) throw new Error("選択した保管場所を使用できません。");
     }
     const row = await context.db.$transaction(async (tx) => {
+      await lockInventoryDomain(tx, context.businessUnitId);
       const itemCode =
         parsed.itemCode || (await nextWorkspaceCode(tx, context.workspaceId, "ITEM"));
       const variantCode = await nextWorkspaceCode(tx, context.workspaceId, "VARIANT");
@@ -307,87 +317,83 @@ export async function createInventoryItemAction(
   }
 }
 
-export async function updateInventoryItemAction(formData: FormData): Promise<void> {
-  await assertTrustedOrigin();
-  const context = await requireInventoryContext();
-  const parsed = z
-    .object({
-      id: z.string().uuid(),
-      name: z.string().trim().min(1).max(120),
-      category: z.string().trim().max(80),
-      defaultConditionCategory: z.enum(["UNSPECIFIED", "NEW", "USED"]),
-      defaultStorageLocationId: z.string().uuid().or(z.literal("")),
-      memo: z.string().trim().max(1000),
-    })
-    .parse(Object.fromEntries(formData));
-  const existing = await context.db.inventoryItem.findFirst({
-    where: {
-      id: parsed.id,
-      workspaceId: context.workspaceId,
-      businessUnitId: context.businessUnitId,
-    },
-    include: { variants: true },
-  });
-  if (!existing) throw new Error("商品が見つかりません。");
-  if (parsed.defaultStorageLocationId) {
-    const location = await context.db.storageLocation.findFirst({
+export async function updateInventoryItemAction(formData: FormData): Promise<MasterResult> {
+  return masterAction(async () => {
+    await assertTrustedOrigin();
+    const context = await requireInventoryContext();
+    const parsed = z
+      .object({
+        id: z.string().uuid(),
+        name: z.string().trim().min(1).max(120),
+        category: z.string().trim().max(80),
+        defaultConditionCategory: z.enum(["UNSPECIFIED", "NEW", "USED"]),
+        defaultStorageLocationId: z.string().uuid().or(z.literal("")),
+        memo: z.string().trim().max(1000),
+      })
+      .parse(Object.fromEntries(formData));
+    const existing = await context.db.inventoryItem.findFirst({
       where: {
-        id: parsed.defaultStorageLocationId,
+        id: parsed.id,
         workspaceId: context.workspaceId,
-        active: true,
-        OR: [{ businessUnitId: null }, { businessUnitId: context.businessUnitId }],
+        businessUnitId: context.businessUnitId,
       },
+      include: { variants: true },
     });
-    if (!location) throw new Error("選択した保管場所を使用できません。");
-  }
-  const active = formData.get("active") === "on";
-  if (!active) {
-    const variantIds = existing.variants.map((variant) => variant.id);
-    const [balances, units] = await Promise.all([
-      context.db.inventoryCostBalance.aggregate({
-        where: { itemVariantId: { in: variantIds }, quantity: { gt: 0 } },
-        _sum: { quantity: true },
-      }),
-      context.db.uniqueStockUnit.count({
-        where: { itemVariantId: { in: variantIds }, status: "IN_STOCK" },
-      }),
-    ]);
-    if ((balances._sum.quantity ?? 0) > 0 || units > 0) {
-      throw new Error("在庫が残る商品は無効化できません。");
+    if (!existing) throw new Error("商品が見つかりません。");
+    if (parsed.defaultStorageLocationId) {
+      const location = await context.db.storageLocation.findFirst({
+        where: {
+          id: parsed.defaultStorageLocationId,
+          workspaceId: context.workspaceId,
+          active: true,
+          OR: [{ businessUnitId: null }, { businessUnitId: context.businessUnitId }],
+        },
+      });
+      if (!location) throw new Error("選択した保管場所を使用できません。");
     }
-  }
-  await context.db.$transaction(async (tx) => {
-    await tx.inventoryItem.update({
-      where: { id: existing.id },
-      data: {
+    const active = formData.get("active") === "on";
+    await context.db.$transaction(async (tx) => {
+      await lockMasterDomain(tx, context.workspaceId);
+      await assertMasterVersion(
+        tx,
+        context.workspaceId,
+        "inventory_item",
+        existing.id,
+        formData.get("revision"),
+      );
+      if (!active) await assertMasterCanDeactivate(tx, "inventory_item", existing.id);
+      await lockInventoryDomain(tx, context.businessUnitId);
+      await updateCatalogItem(tx, context, {
+        id: existing.id,
+        revision: Number(formData.get("revision")),
         name: parsed.name,
-        category: parsed.category || null,
+        category: parsed.category,
+        memo: parsed.memo,
+        locationId: parsed.defaultStorageLocationId,
         defaultConditionCategory: parsed.defaultConditionCategory,
-        defaultStorageLocationId: parsed.defaultStorageLocationId || null,
-        memo: parsed.memo || null,
-        status: active ? "ACTIVE" : "INACTIVE",
-      },
+        active,
+      });
+      await writeAudit(tx, {
+        workspaceId: context.workspaceId,
+        userAccountId: context.session.userAccountId,
+        operatorId: context.operatorId,
+        action: "inventory_item.update",
+        entityType: "inventory_item",
+        entityId: existing.id,
+        before: {
+          name: existing.name,
+          category: existing.category,
+          defaultConditionCategory: existing.defaultConditionCategory,
+          defaultStorageLocationId: existing.defaultStorageLocationId,
+          memo: existing.memo,
+          status: existing.status,
+        },
+        after: { ...parsed, status: active ? "ACTIVE" : "INACTIVE" },
+      });
     });
-    await writeAudit(tx, {
-      workspaceId: context.workspaceId,
-      userAccountId: context.session.userAccountId,
-      operatorId: context.operatorId,
-      action: "inventory_item.update",
-      entityType: "inventory_item",
-      entityId: existing.id,
-      before: {
-        name: existing.name,
-        category: existing.category,
-        defaultConditionCategory: existing.defaultConditionCategory,
-        defaultStorageLocationId: existing.defaultStorageLocationId,
-        memo: existing.memo,
-        status: existing.status,
-      },
-      after: { ...parsed, status: active ? "ACTIVE" : "INACTIVE" },
-    });
+    revalidatePath("/inventory");
+    revalidatePath(`/inventory/${existing.id}`);
   });
-  revalidatePath("/inventory");
-  revalidatePath(`/inventory/${existing.id}`);
 }
 
 type PurchasePayload =
@@ -445,6 +451,16 @@ async function savePurchase(payload: PurchasePayload, type: "DOMESTIC" | "USED_B
   if (existing && existing.id !== payload.purchaseId) return existing;
   return context.db.$transaction(
     async (tx) => {
+      await lockInventoryDomain(tx, context.businessUnitId);
+      await checkWorkflowContext(tx, {
+        workspaceId: context.workspaceId,
+        businessUnitId: context.businessUnitId,
+        operatorId: context.operatorId,
+        year: context.fiscalYear.year,
+        reportingEntityId: context.reportingEntityId,
+        userAccountId: context.session.userAccountId,
+        sessionId: context.session.id,
+      });
       const editing = payload.purchaseId
         ? await tx.purchase.findFirst({
             where: {
@@ -539,6 +555,7 @@ export async function saveQuantityPurchaseAction(
 ): Promise<InventoryActionState> {
   try {
     await assertTrustedOrigin();
+    await rejectRetiredPurchaseWrite();
     const purchase = await savePurchase(parsePayload(formData, quantityPurchaseSchema), "DOMESTIC");
     redirect(`/purchases/${purchase.id}`);
   } catch (error) {
@@ -553,6 +570,7 @@ export async function saveUsedBundlePurchaseAction(
 ): Promise<InventoryActionState> {
   try {
     await assertTrustedOrigin();
+    await rejectRetiredPurchaseWrite();
     const purchase = await savePurchase(
       parsePayload(formData, usedBundlePurchaseSchema),
       "USED_BUNDLE",
@@ -566,9 +584,23 @@ export async function saveUsedBundlePurchaseAction(
 
 type UnifiedPurchasePayload = z.infer<typeof unifiedPurchaseSchema>;
 
-async function persistUnifiedPurchase(payload: UnifiedPurchasePayload) {
+async function persistUnifiedPurchase(
+  payload: UnifiedPurchasePayload,
+  expected?: { businessUnitId: string; operatorId: string; year: number },
+  draftId?: string,
+  updatedAt?: string,
+) {
   const date = tokyoDate(payload.purchasedDate);
   const context = await requireInventoryContext(date);
+  if (
+    expected &&
+    (expected.businessUnitId !== context.businessUnitId ||
+      expected.operatorId !== context.operatorId ||
+      expected.year !== context.fiscalYear.year)
+  )
+    throw new Error(
+      "入力中に部門・年度・入力者が変更されました。元の選択に戻して保存してください。",
+    );
   await verifyLocationAndSupplier(
     context.workspaceId,
     context.businessUnitId,
@@ -614,6 +646,31 @@ async function persistUnifiedPurchase(payload: UnifiedPurchasePayload) {
 
   return context.db.$transaction(
     async (tx) => {
+      await lockInventoryDomain(tx, context.businessUnitId);
+      await checkWorkflowContext(tx, {
+        workspaceId: context.workspaceId,
+        businessUnitId: context.businessUnitId,
+        operatorId: context.operatorId,
+        year: context.fiscalYear.year,
+        reportingEntityId: context.reportingEntityId,
+        userAccountId: context.session.userAccountId,
+        sessionId: context.session.id,
+      });
+      await checkWorkflowContext(
+        tx,
+        {
+          workspaceId: context.workspaceId,
+          businessUnitId: context.businessUnitId,
+          operatorId: context.operatorId,
+          year: context.fiscalYear.year,
+          reportingEntityId: context.reportingEntityId,
+          userAccountId: context.session.userAccountId,
+          sessionId: context.session.id,
+        },
+        payload.purchasedDate,
+      );
+      if (draftId)
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`draft:${draftId}`},0))`;
       const editing = payload.purchaseId
         ? await tx.purchase.findFirst({
             where: {
@@ -625,6 +682,10 @@ async function persistUnifiedPurchase(payload: UnifiedPurchasePayload) {
           })
         : null;
       if (payload.purchaseId && !editing) throw new Error("編集できる仕入下書きが見つかりません。");
+      if (editing && (!updatedAt || editing.updatedAt.toISOString() !== updatedAt))
+        throw new Error(
+          "別端末で仕入れが更新されました。入力を控えてから再読み込みし、差分を確認してください。",
+        );
 
       const variantMap = new Map<string, string>();
       for (const product of payload.newProducts) {
@@ -750,6 +811,32 @@ async function persistUnifiedPurchase(payload: UnifiedPurchasePayload) {
           lineCount: payload.lines.length,
         },
       });
+      if (draftId) {
+        const prior = await tx.workflowDraft.findUnique({ where: { id: draftId } });
+        if (
+          prior &&
+          (prior.workspaceId !== context.workspaceId ||
+            prior.businessUnitId !== context.businessUnitId ||
+            prior.operatorId !== context.operatorId ||
+            prior.year !== context.fiscalYear.year ||
+            prior.kind !== "PURCHASE")
+        )
+          throw new Error("途中保存の入力先が一致しません。");
+        await tx.workflowDraft.upsert({
+          where: { id: draftId },
+          create: {
+            id: draftId,
+            workspaceId: context.workspaceId,
+            businessUnitId: context.businessUnitId,
+            operatorId: context.operatorId,
+            year: context.fiscalYear.year,
+            kind: "PURCHASE",
+            payload: { purchaseId: purchase.id },
+            archivedAt: new Date(),
+          },
+          update: { archivedAt: new Date() },
+        });
+      }
       return purchase;
     },
     { isolationLevel: "Serializable", timeout: 20_000 },
@@ -762,7 +849,22 @@ export async function saveUnifiedPurchaseAction(
 ): Promise<InventoryActionState> {
   try {
     await assertTrustedOrigin();
-    const purchase = await persistUnifiedPurchase(parsePayload(formData, unifiedPurchaseSchema));
+    await rejectRetiredPurchaseWrite();
+    const rawContext = formData.get("inputContext");
+    const expected =
+      typeof rawContext === "string" && rawContext !== "null"
+        ? z
+            .object({ businessUnitId: z.uuid(), operatorId: z.uuid(), year: z.number().int() })
+            .parse(JSON.parse(rawContext))
+        : undefined;
+    const draftId = formData.get("draftId"),
+      updatedAt = formData.get("updatedAt");
+    const purchase = await persistUnifiedPurchase(
+      parsePayload(formData, unifiedPurchaseSchema),
+      expected,
+      typeof draftId === "string" ? z.uuid().parse(draftId) : undefined,
+      typeof updatedAt === "string" && updatedAt ? z.iso.datetime().parse(updatedAt) : undefined,
+    );
     redirect(`/purchases/${purchase.id}`);
   } catch (error) {
     if (typeof error === "object" && error && "digest" in error) throw error;
@@ -772,8 +874,13 @@ export async function saveUnifiedPurchaseAction(
 
 export async function finalizePurchaseAction(formData: FormData): Promise<void> {
   await assertTrustedOrigin();
+  await rejectRetiredPurchaseWrite();
   const parsed = z
-    .object({ id: z.string().uuid(), idempotencyKey: z.string().uuid() })
+    .object({
+      id: z.string().uuid(),
+      idempotencyKey: z.string().uuid(),
+      receivedDate: z.string().optional(),
+    })
     .parse(Object.fromEntries(formData));
   const initialContext = await requireInventoryContext();
   const purchase = await initialContext.db.purchase.findFirst({
@@ -786,6 +893,12 @@ export async function finalizePurchaseAction(formData: FormData): Promise<void> 
   });
   if (!purchase) throw new Error("仕入れが見つかりません。");
   const context = await requireInventoryContext(purchase.purchasedDate);
+  const receivedDate = parsed.receivedDate
+    ? tokyoDate(parsed.receivedDate)
+    : purchase.purchasedDate;
+  await requireInventoryContext(receivedDate);
+  if (receivedDate < purchase.purchasedDate)
+    throw new Error("入庫日は仕入日以降を指定してください。");
   if (purchase.status === "FINALIZED") return;
   if (purchase.status !== "DRAFT") throw new Error("下書きの仕入れだけを確定できます。");
   const sum = purchase.lines.reduce((total, line) => total + line.finalLandedCostJpy, 0n);
@@ -815,6 +928,16 @@ export async function finalizePurchaseAction(formData: FormData): Promise<void> 
   if (already) return;
   await context.db.$transaction(
     async (tx) => {
+      await lockInventoryDomain(tx, context.businessUnitId);
+      await checkWorkflowContext(tx, {
+        workspaceId: context.workspaceId,
+        businessUnitId: context.businessUnitId,
+        operatorId: context.operatorId,
+        year: context.fiscalYear.year,
+        reportingEntityId: context.reportingEntityId,
+        userAccountId: context.session.userAccountId,
+        sessionId: context.session.id,
+      });
       const current = await tx.purchase.findUnique({ where: { id: purchase.id } });
       if (!current || current.status !== "DRAFT") return;
       const operation = await tx.inventoryOperation.create({
@@ -826,7 +949,7 @@ export async function finalizePurchaseAction(formData: FormData): Promise<void> 
           sourceType: "purchase",
           sourceId: purchase.id,
           idempotencyKey: parsed.idempotencyKey,
-          occurredAt: new Date(),
+          occurredAt: new Date(`${receivedDate.toISOString().slice(0, 10)}T00:00:00+09:00`),
         },
       });
       for (const [index, line] of purchase.lines.entries()) {
@@ -836,7 +959,7 @@ export async function finalizePurchaseAction(formData: FormData): Promise<void> 
             itemVariantId: line.itemVariantId,
             trackingMode: line.trackingMode,
             purchaseLineId: line.id,
-            receivedDate: purchase.purchasedDate,
+            receivedDate,
             receivedQuantity: line.orderedQuantity,
             remainingQuantity: line.orderedQuantity,
             landedCostTotalJpy: line.finalLandedCostJpy,
@@ -945,6 +1068,7 @@ export async function finalizePurchaseAction(formData: FormData): Promise<void> 
 
 export async function deleteDraftPurchaseAction(formData: FormData): Promise<void> {
   await assertTrustedOrigin();
+  await rejectRetiredPurchaseWrite();
   const context = await requireInventoryContext();
   const id = z.string().uuid().parse(formData.get("id"));
   const purchase = await context.db.purchase.findFirst({
@@ -957,6 +1081,16 @@ export async function deleteDraftPurchaseAction(formData: FormData): Promise<voi
   });
   if (!purchase) throw new Error("削除できる下書きが見つかりません。");
   await context.db.$transaction(async (tx) => {
+    await lockInventoryDomain(tx, context.businessUnitId);
+    await checkWorkflowContext(tx, {
+      workspaceId: context.workspaceId,
+      businessUnitId: context.businessUnitId,
+      operatorId: context.operatorId,
+      year: context.fiscalYear.year,
+      reportingEntityId: context.reportingEntityId,
+      userAccountId: context.session.userAccountId,
+      sessionId: context.session.id,
+    });
     await writeAudit(tx, {
       workspaceId: context.workspaceId,
       userAccountId: context.session.userAccountId,
@@ -976,6 +1110,7 @@ export async function deleteDraftPurchaseAction(formData: FormData): Promise<voi
 
 async function cancelPurchase(formData: FormData): Promise<void> {
   await assertTrustedOrigin();
+  await rejectRetiredPurchaseWrite();
   const parsed = z
     .object({
       id: z.string().uuid(),
@@ -1027,6 +1162,16 @@ async function cancelPurchase(formData: FormData): Promise<void> {
   }
   await context.db.$transaction(
     async (tx) => {
+      await lockInventoryDomain(tx, context.businessUnitId);
+      await checkWorkflowContext(tx, {
+        workspaceId: context.workspaceId,
+        businessUnitId: context.businessUnitId,
+        operatorId: context.operatorId,
+        year: context.fiscalYear.year,
+        reportingEntityId: context.reportingEntityId,
+        userAccountId: context.session.userAccountId,
+        sessionId: context.session.id,
+      });
       const operation = await tx.inventoryOperation.create({
         data: {
           workspaceId: context.workspaceId,
@@ -1043,6 +1188,17 @@ async function cancelPurchase(formData: FormData): Promise<void> {
       for (const [index, line] of purchase.lines.entries()) {
         const lot = line.inventoryLot!;
         await lockInventoryTarget(tx, line.itemVariantId, context.businessUnitId);
+        if (
+          await tx.inventoryReservation.count({
+            where: {
+              status: "RESERVED",
+              OR: [{ inventoryLotId: lot.id }, { uniqueStockUnit: { inventoryLotId: lot.id } }],
+            },
+          })
+        )
+          throw new Error(
+            "出品・注文に確保済みの在庫があります。関連出品の終了・返送確認を先に行ってください。",
+          );
         const balance = await tx.inventoryCostBalance.findUniqueOrThrow({
           where: {
             itemVariantId_businessUnitId_trackingMode: {
@@ -1128,361 +1284,15 @@ export async function cancelPurchaseAction(
   }
 }
 
-function locationBalances(
-  movements: Array<{
-    inventoryLotId: string | null;
-    movementType: string;
-    quantity: number;
-    storageLocationFromId: string | null;
-    storageLocationToId: string | null;
-  }>,
-  locationId: string,
-) {
-  const balances = new Map<string, number>();
-  for (const row of movements) {
-    if (!row.inventoryLotId) continue;
-    let delta = 0;
-    if (row.movementType === "LOCATION_TRANSFER") {
-      if (row.storageLocationToId === locationId) delta += row.quantity;
-      if (row.storageLocationFromId === locationId) delta -= row.quantity;
-    } else {
-      if (row.storageLocationToId === locationId) delta += row.quantity;
-      if (row.storageLocationFromId === locationId) delta += row.quantity;
-    }
-    balances.set(row.inventoryLotId, (balances.get(row.inventoryLotId) ?? 0) + delta);
-  }
-  return balances;
-}
-
 export async function executeInventoryOperationAction(
   _state: InventoryActionState,
-  formData: FormData,
+  _formData: FormData,
 ): Promise<InventoryActionState> {
-  try {
-    await assertTrustedOrigin();
-    const input = parsePayload(formData, inventoryOperationSchema);
-    const date = tokyoDate(input.occurredDate);
-    const context = await requireInventoryContext(date);
-    const variant = await context.db.itemVariant.findFirst({
-      where: {
-        id: input.variantId,
-        active: true,
-        inventoryItem: {
-          workspaceId: context.workspaceId,
-          businessUnitId: context.businessUnitId,
-          status: "ACTIVE",
-        },
-      },
-      include: { inventoryItem: true },
-    });
-    if (!variant) throw new Error("対象商品が見つかりません。");
-    const locationIds = [input.fromLocationId, input.toLocationId].filter(Boolean);
-    const locationCount = await context.db.storageLocation.count({
-      where: {
-        id: { in: locationIds },
-        workspaceId: context.workspaceId,
-        active: true,
-        OR: [{ businessUnitId: null }, { businessUnitId: context.businessUnitId }],
-      },
-    });
-    if (locationCount !== new Set(locationIds).size) throw new Error("保管場所を使用できません。");
-    if (
-      await context.db.inventoryOperation.findUnique({
-        where: { idempotencyKey: input.idempotencyKey },
-      })
-    )
-      return { success: "この在庫操作は登録済みです。" };
-    await context.db.$transaction(
-      async (tx) => {
-        await lockInventoryTarget(tx, variant.id, context.businessUnitId);
-        const operation = await tx.inventoryOperation.create({
-          data: {
-            workspaceId: context.workspaceId,
-            businessUnitId: context.businessUnitId,
-            operatorId: context.operatorId,
-            operationType: input.operationType,
-            sourceType: "manual_adjustment",
-            sourceId: input.idempotencyKey,
-            idempotencyKey: input.idempotencyKey,
-            occurredAt: new Date(),
-            note: `${input.reason}: ${input.note}`.trim(),
-          },
-        });
-        if (input.trackingMode === "UNIQUE") {
-          if (
-            !input.uniqueStockUnitId ||
-            input.quantity !== 1 ||
-            input.operationType === "ADJUSTMENT_IN"
-          )
-            throw new Error("個体商品の操作内容を確認してください。");
-          const unit = await tx.uniqueStockUnit.findFirst({
-            where: {
-              id: input.uniqueStockUnitId,
-              workspaceId: context.workspaceId,
-              itemVariantId: variant.id,
-              status: "IN_STOCK",
-            },
-          });
-          if (!unit) throw new Error("在庫中の個体が見つかりません。");
-          if (input.fromLocationId && unit.storageLocationId !== input.fromLocationId)
-            throw new Error("個体の現在場所が移動元と一致しません。");
-          const isTransfer = input.operationType === "LOCATION_TRANSFER";
-          const movementType = input.operationType;
-          const status =
-            input.operationType === "DISPOSAL"
-              ? "DISPOSED"
-              : input.operationType === "LOSS"
-                ? "LOST"
-                : input.operationType === "PERSONAL_USE"
-                  ? "PERSONAL_USE"
-                  : input.operationType === "ADJUSTMENT_OUT"
-                    ? "DISPOSED"
-                    : "IN_STOCK";
-          await tx.uniqueStockUnit.update({
-            where: { id: unit.id },
-            data: {
-              storageLocationId: isTransfer ? input.toLocationId : unit.storageLocationId,
-              status,
-            },
-          });
-          if (!isTransfer) {
-            await tx.inventoryLot.update({
-              where: { id: unit.inventoryLotId },
-              data: { remainingQuantity: 0 },
-            });
-            const balance = await tx.inventoryCostBalance.findUniqueOrThrow({
-              where: {
-                itemVariantId_businessUnitId_trackingMode: {
-                  itemVariantId: variant.id,
-                  businessUnitId: context.businessUnitId,
-                  trackingMode: "UNIQUE",
-                },
-              },
-            });
-            const quantity = balance.quantity - 1;
-            const total = balance.carryingCostTotalJpy - unit.acquisitionCostJpy;
-            if (quantity < 0 || total < 0) throw new Error("在庫原価残高が不足しています。");
-            await tx.inventoryCostBalance.update({
-              where: { id: balance.id },
-              data: {
-                quantity,
-                carryingCostTotalJpy: total,
-                averageUnitCostJpy: quantity === 0 ? 0 : averageUnitCost(total, quantity),
-              },
-            });
-          }
-          await tx.stockMovement.create({
-            data: {
-              operationId: operation.id,
-              itemVariantId: variant.id,
-              inventoryLotId: unit.inventoryLotId,
-              uniqueStockUnitId: unit.id,
-              movementType,
-              quantity: isTransfer ? 1 : -1,
-              costTotalJpy: isTransfer ? 0n : -unit.acquisitionCostJpy,
-              movementAt: operation.occurredAt,
-              businessUnitId: context.businessUnitId,
-              storageLocationFromId: input.fromLocationId || unit.storageLocationId,
-              storageLocationToId: isTransfer ? input.toLocationId : null,
-              sourceType: "manual_adjustment",
-              sourceId: operation.id,
-              idempotencyKey: `${input.idempotencyKey}:0`,
-              operatorId: context.operatorId,
-              note: `${input.reason}: ${input.note}`.trim(),
-            },
-          });
-        } else if (input.operationType === "ADJUSTMENT_IN") {
-          const unitCost = parseYen(input.unitCostJpy);
-          const totalCost = unitCost * BigInt(input.quantity);
-          const locationId = input.toLocationId || variant.inventoryItem.defaultStorageLocationId;
-          if (!locationId) throw new Error("増加先の保管場所を選択してください。");
-          const lot = await tx.inventoryLot.create({
-            data: {
-              itemVariantId: variant.id,
-              trackingMode: "QUANTITY",
-              receivedDate: date,
-              receivedQuantity: input.quantity,
-              remainingQuantity: input.quantity,
-              landedCostTotalJpy: totalCost,
-              unitCostJpy: averageUnitCost(totalCost, input.quantity),
-              costStatus: "FINAL",
-              storageLocationId: locationId,
-            },
-          });
-          const balance = await tx.inventoryCostBalance.findUnique({
-            where: {
-              itemVariantId_businessUnitId_trackingMode: {
-                itemVariantId: variant.id,
-                businessUnitId: context.businessUnitId,
-                trackingMode: "QUANTITY",
-              },
-            },
-          });
-          const quantity = (balance?.quantity ?? 0) + input.quantity;
-          const total = (balance?.carryingCostTotalJpy ?? 0n) + totalCost;
-          await tx.inventoryCostBalance.upsert({
-            where: {
-              itemVariantId_businessUnitId_trackingMode: {
-                itemVariantId: variant.id,
-                businessUnitId: context.businessUnitId,
-                trackingMode: "QUANTITY",
-              },
-            },
-            create: {
-              itemVariantId: variant.id,
-              businessUnitId: context.businessUnitId,
-              trackingMode: "QUANTITY",
-              quantity,
-              carryingCostTotalJpy: total,
-              averageUnitCostJpy: averageUnitCost(total, quantity),
-            },
-            update: {
-              quantity,
-              carryingCostTotalJpy: total,
-              averageUnitCostJpy: averageUnitCost(total, quantity),
-            },
-          });
-          await tx.stockMovement.create({
-            data: {
-              operationId: operation.id,
-              itemVariantId: variant.id,
-              inventoryLotId: lot.id,
-              movementType: "ADJUSTMENT_IN",
-              quantity: input.quantity,
-              costTotalJpy: totalCost,
-              movementAt: operation.occurredAt,
-              businessUnitId: context.businessUnitId,
-              storageLocationToId: locationId,
-              sourceType: "manual_adjustment",
-              sourceId: operation.id,
-              idempotencyKey: `${input.idempotencyKey}:0`,
-              operatorId: context.operatorId,
-              note: `${input.reason}: ${input.note}`.trim(),
-            },
-          });
-        } else {
-          if (!input.fromLocationId) throw new Error("移動元の保管場所を選択してください。");
-          const movements = await tx.stockMovement.findMany({
-            where: {
-              itemVariantId: variant.id,
-              businessUnitId: context.businessUnitId,
-              inventoryLot: { trackingMode: "QUANTITY" },
-            },
-            select: {
-              inventoryLotId: true,
-              movementType: true,
-              quantity: true,
-              storageLocationFromId: true,
-              storageLocationToId: true,
-            },
-          });
-          const byLot = locationBalances(movements, input.fromLocationId);
-          const lots = await tx.inventoryLot.findMany({
-            where: {
-              itemVariantId: variant.id,
-              trackingMode: "QUANTITY",
-              remainingQuantity: { gt: 0 },
-            },
-            orderBy: [{ receivedDate: "asc" }, { id: "asc" }],
-          });
-          let remaining = input.quantity;
-          const allocations: Array<{ lot: (typeof lots)[number]; quantity: number }> = [];
-          for (const lot of lots) {
-            const available = Math.min(lot.remainingQuantity, byLot.get(lot.id) ?? 0);
-            if (available <= 0) continue;
-            const quantity = Math.min(available, remaining);
-            allocations.push({ lot, quantity });
-            remaining -= quantity;
-            if (!remaining) break;
-          }
-          if (remaining) throw new Error("移動元の在庫数量が不足しています。");
-          const isTransfer = input.operationType === "LOCATION_TRANSFER";
-          const balance = await tx.inventoryCostBalance.findUniqueOrThrow({
-            where: {
-              itemVariantId_businessUnitId_trackingMode: {
-                itemVariantId: variant.id,
-                businessUnitId: context.businessUnitId,
-                trackingMode: "QUANTITY",
-              },
-            },
-          });
-          const outgoingCost = isTransfer
-            ? 0n
-            : movingAverageOutCost(balance.carryingCostTotalJpy, balance.quantity, input.quantity);
-          let allocatedCost = 0n;
-          for (const [index, allocation] of allocations.entries()) {
-            const last = index === allocations.length - 1;
-            const share = isTransfer
-              ? 0n
-              : last
-                ? outgoingCost - allocatedCost
-                : BigInt(
-                    new Decimal(outgoingCost.toString())
-                      .mul(allocation.quantity)
-                      .div(input.quantity)
-                      .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-                      .toFixed(0),
-                  );
-            allocatedCost += share;
-            if (!isTransfer)
-              await tx.inventoryLot.update({
-                where: { id: allocation.lot.id },
-                data: { remainingQuantity: { decrement: allocation.quantity } },
-              });
-            await tx.stockMovement.create({
-              data: {
-                operationId: operation.id,
-                itemVariantId: variant.id,
-                inventoryLotId: allocation.lot.id,
-                movementType: input.operationType,
-                quantity: isTransfer ? allocation.quantity : -allocation.quantity,
-                costTotalJpy: isTransfer ? 0n : -share,
-                movementAt: operation.occurredAt,
-                businessUnitId: context.businessUnitId,
-                storageLocationFromId: input.fromLocationId,
-                storageLocationToId: isTransfer ? input.toLocationId : null,
-                sourceType: "manual_adjustment",
-                sourceId: operation.id,
-                idempotencyKey: `${input.idempotencyKey}:${index}`,
-                operatorId: context.operatorId,
-                note: `${input.reason}: ${input.note}`.trim(),
-              },
-            });
-          }
-          if (!isTransfer) {
-            const quantity = balance.quantity - input.quantity;
-            const total = balance.carryingCostTotalJpy - outgoingCost;
-            await tx.inventoryCostBalance.update({
-              where: { id: balance.id },
-              data: {
-                quantity,
-                carryingCostTotalJpy: total,
-                averageUnitCostJpy: quantity === 0 ? 0 : averageUnitCost(total, quantity),
-              },
-            });
-          }
-        }
-        await writeAudit(tx, {
-          workspaceId: context.workspaceId,
-          userAccountId: context.session.userAccountId,
-          operatorId: context.operatorId,
-          action: "inventory.operation",
-          entityType: "inventory_operation",
-          entityId: operation.id,
-          after: {
-            operationType: input.operationType,
-            variantId: input.variantId,
-            quantity: input.quantity,
-            reason: input.reason,
-          },
-        });
-      },
-      { isolationLevel: "Serializable", timeout: 20_000 },
-    );
-    revalidatePath("/inventory");
-    revalidatePath("/");
-    return { success: "在庫操作を記録しました。" };
-  } catch (error) {
-    return { error: message(error) };
-  }
+  await assertTrustedOrigin();
+  await requireInventoryContext();
+  void _state;
+  void _formData;
+  return {
+    error: "在庫操作画面を開き直してください。保存結果を確認できる新しい操作へ切り替わりました。",
+  };
 }

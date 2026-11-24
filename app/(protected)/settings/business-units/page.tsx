@@ -1,3 +1,4 @@
+import { MasterForm } from "@/components/forms/master-form";
 import { requireSession } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { createBusinessUnitAction, updateBusinessUnitAction } from "@/app/actions";
@@ -19,7 +20,11 @@ export default async function BusinessUnitsPage() {
           <p className="muted">管理上の物販活動と、年度ごとの申告主体を分離して管理します。</p>
         </div>
       </header>
-      <form action={createBusinessUnitAction} className="card stack" style={{ marginBottom: 20 }}>
+      <MasterForm
+        action={createBusinessUnitAction}
+        className="card stack"
+        style={{ marginBottom: 20 }}
+      >
         <h2>販売部門を追加</h2>
         <div className="context-form">
           <label className="field">
@@ -39,10 +44,11 @@ export default async function BusinessUnitsPage() {
         <p className="muted">
           部門コードは保存後に変更できません。年度別の入力者と申告主体は会計年度画面で設定します。
         </p>
-      </form>
+      </MasterForm>
       <div className="stack">
         {rows.map((row) => (
-          <form action={updateBusinessUnitAction} className="card" key={row.id}>
+          <MasterForm action={updateBusinessUnitAction} className="card" key={row.id}>
+            <input type="hidden" name="revision" value={row.revision} />
             <input type="hidden" name="id" value={row.id} />
             <p className="eyebrow">{row.code}</p>
             <div className="context-form">
@@ -70,7 +76,7 @@ export default async function BusinessUnitsPage() {
               有効
             </label>
             <p className="muted">年度割当: {row._count.assignments}件</p>
-          </form>
+          </MasterForm>
         ))}
       </div>
     </div>

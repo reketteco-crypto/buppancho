@@ -1,3 +1,4 @@
+import { MasterForm } from "@/components/forms/master-form";
 import { updateWorkspaceAction } from "@/app/actions";
 import { requireSession } from "@/lib/auth/session";
 
@@ -13,7 +14,8 @@ export default async function WorkspacePage() {
         </div>
       </header>
       <section className="card">
-        <form action={updateWorkspaceAction} className="stack">
+        <MasterForm action={updateWorkspaceAction} className="stack">
+          <input type="hidden" name="revision" value={workspace.revision} />
           <label className="field">
             <span>表示名</span>
             <input name="name" defaultValue={workspace.name} required maxLength={100} />
@@ -32,7 +34,7 @@ export default async function WorkspacePage() {
           <button className="button" type="submit">
             名称を保存
           </button>
-        </form>
+        </MasterForm>
       </section>
     </div>
   );

@@ -1,16 +1,40 @@
-import { randomUUID } from "node:crypto";
 import Link from "next/link";
+import { GenericPurchaseDetail } from "@/components/commerce/purchase-detail";
+import { ListBackLink } from "@/components/list-display-state";
 import { notFound } from "next/navigation";
-import { deleteDraftPurchaseAction, finalizePurchaseAction } from "@/app/inventory/actions";
-import { PurchaseCancelForm } from "@/components/forms/purchase-cancel-form";
+import { loadPurchaseReview } from "@/lib/inventory/purchase-conflict";
+import type { PurchaseBaseline } from "@/lib/inventory/purchase-comparison";
+import { PurchaseEventForm } from "@/components/forms/purchase-event-form";
+import { inputContext, recoveryRequest } from "@/lib/sales/workflow-view";
 import { requireInventoryContext } from "@/lib/inventory/context";
 import { formatYen } from "@/lib/inventory/money";
+import { effectiveOperationDates } from "@/lib/inventory/event-dates";
+import { operationLabels } from "@/lib/inventory/operation-labels";
+import { transactionScope } from "@/lib/commerce/scope";
 
-export default async function PurchaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PurchaseDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{
+    operation?: string;
+    operationKind?: string;
+    recorded?: string;
+    returnTo?: string;
+  }>;
+}) {
   const { id } = await params;
   const context = await requireInventoryContext();
+  if (
+    await context.db.purchaseDocument.findFirst({
+      where: { id, ...transactionScope(context) },
+      select: { id: true },
+    })
+  )
+    return <GenericPurchaseDetail id={id} returnTo={(await searchParams).returnTo} />;
   const purchase = await context.db.purchase.findFirst({
-    where: { id, workspaceId: context.workspaceId, businessUnitId: context.businessUnitId },
+    where: { id, ...transactionScope(context) },
     include: {
       supplier: true,
       storageLocation: true,
@@ -19,6 +43,37 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
     },
   });
   if (!purchase) notFound();
+  const stockEvents = await context.db.inventoryOperation.findMany({
+    where: {
+      workspaceId: context.workspaceId,
+      businessUnitId: context.businessUnitId,
+      sourceType: "purchase",
+      sourceId: purchase.id,
+      operationType: { in: ["PURCHASE_RECEIPT", "PURCHASE_REVERSAL"] },
+    },
+    orderBy: { occurredAt: "asc" },
+  });
+  const stockDates = await effectiveOperationDates(context.db, stockEvents);
+  const review = await loadPurchaseReview(
+    context.db,
+    { ...context, year: context.fiscalYear.year, userAccountId: context.session.userAccountId },
+    { purchaseId: id },
+  );
+  const query = await searchParams;
+  const operationKind =
+    query.operationKind === "PURCHASE_RECEIVE" ? "PURCHASE_RECEIVE" : "PURCHASE_CANCEL";
+  const recovery = await recoveryRequest(context, query.operation, operationKind);
+  const recoveryPayload = recovery?.payload as
+    | {
+        purchaseId?: string;
+        date?: string;
+        reason?: string;
+        revision?: number;
+        baseSnapshot?: PurchaseBaseline | null;
+      }
+    | undefined;
+  const initial = recoveryPayload?.purchaseId === purchase.id ? recoveryPayload : undefined;
+  const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
   const allocated = purchase.lines.reduce((sum, line) => sum + line.finalLandedCostJpy, 0n);
   return (
     <div className="page">
@@ -32,10 +87,19 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
               : "確定済みの内容は直接編集できません。"}
           </p>
         </div>
-        <Link className="button secondary" href="/purchases">
+        <ListBackLink
+          context={`${context.workspaceId}:${context.operatorId}:${context.businessUnitId}:${context.fiscalYear.year}`}
+          className="button secondary"
+          href="/purchases"
+        >
           仕入一覧へ
-        </Link>
+        </ListBackLink>
       </header>
+      {query.recorded === "1" && (
+        <p role="status" className="message success">
+          仕入れの記録を保存しました。状態・在庫と履歴をご確認ください。
+        </p>
+      )}
       <div className="metric-grid">
         <div className="card metric">
           <span>仕入総額</span>
@@ -58,6 +122,12 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
       </div>
       <section className="card section-block">
         <h2>仕入情報</h2>
+        {stockEvents.map((e) => (
+          <p key={e.id}>
+            {operationLabels[e.operationType]}日：{stockDates.get(e.id)}{" "}
+            <Link href={`/inventory/events/${e.id}/date`}>日付を訂正</Link>
+          </p>
+        ))}
         <dl className="detail-grid">
           <div>
             <dt>仕入日</dt>
@@ -133,38 +203,74 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
         </div>
       </section>
       {purchase.status === "DRAFT" ? (
-        <section className="card action-panel">
+        <section className="card action-panel purchase-action-panel">
           <div>
             <h2>仕入確定・入庫</h2>
             <p className="muted">
               確定後は直接編集できません。全明細を1つのトランザクションで入庫します。
             </p>
           </div>
-          <div className="status-actions">
+          <div className="purchase-status-actions">
             <Link className="button secondary" href={`/purchases/${purchase.id}/edit`}>
               下書きを編集
             </Link>
-            <form action={deleteDraftPurchaseAction}>
-              <input type="hidden" name="id" value={purchase.id} />
-              <button className="button danger">下書きを削除</button>
-            </form>
-            <form action={finalizePurchaseAction}>
-              <input type="hidden" name="id" value={purchase.id} />
-              <input type="hidden" name="idempotencyKey" value={randomUUID()} />
-              <button className="button">仕入確定・入庫</button>
-            </form>
+            <PurchaseEventForm
+              review={review}
+              kind="PURCHASE_RECEIVE"
+              context={inputContext(context)}
+              purchaseId={purchase.id}
+              revision={purchase.revision}
+              today={today}
+              initial={operationKind === "PURCHASE_RECEIVE" ? initial : undefined}
+            />
+            <details>
+              <summary>この仕入れを取り消す（在庫変更なし）</summary>
+              <PurchaseEventForm
+                review={review}
+                kind="PURCHASE_CANCEL"
+                context={inputContext(context)}
+                purchaseId={purchase.id}
+                revision={purchase.revision}
+                today={today}
+                initial={operationKind === "PURCHASE_CANCEL" ? initial : undefined}
+              />
+            </details>
           </div>
         </section>
       ) : null}
+      {recovery &&
+        purchase.status !== "DRAFT" &&
+        (operationKind === "PURCHASE_RECEIVE" || purchase.status === "CANCELLED") && (
+          <section className="card">
+            <h2>保存要求の結果確認</h2>
+            <PurchaseEventForm
+              review={review}
+              kind={operationKind}
+              context={inputContext(context)}
+              purchaseId={purchase.id}
+              revision={purchase.revision}
+              today={today}
+              initial={initial}
+            />
+          </section>
+        )}
       {purchase.status === "FINALIZED" ? (
-        <section className="card action-panel">
+        <section className="card action-panel purchase-action-panel">
           <div>
             <h2>確定仕入れの取消</h2>
             <p className="muted">
               入庫後の移動がなく、全量残っている場合だけ反対移動で取り消せます。
             </p>
           </div>
-          <PurchaseCancelForm purchaseId={purchase.id} />
+          <PurchaseEventForm
+            review={review}
+            kind="PURCHASE_CANCEL"
+            context={inputContext(context)}
+            purchaseId={purchase.id}
+            revision={purchase.revision}
+            today={today}
+            initial={operationKind === "PURCHASE_CANCEL" ? initial : undefined}
+          />
         </section>
       ) : null}
     </div>

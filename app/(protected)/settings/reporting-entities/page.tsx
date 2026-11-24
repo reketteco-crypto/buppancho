@@ -1,3 +1,4 @@
+import { MasterForm } from "@/components/forms/master-form";
 import { requireSession } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { createReportingEntityAction, updateReportingEntityAction } from "@/app/actions";
@@ -18,7 +19,7 @@ export default async function ReportingEntitiesPage() {
           <p className="muted">所得と帳簿が帰属する人を、入力者や販売部門から分離します。</p>
         </div>
       </header>
-      <form
+      <MasterForm
         action={createReportingEntityAction}
         className="card context-form"
         style={{ marginBottom: 20 }}
@@ -28,10 +29,11 @@ export default async function ReportingEntitiesPage() {
           <input name="displayName" maxLength={50} required />
         </label>
         <button className="button">申告主体を追加</button>
-      </form>
+      </MasterForm>
       <div className="stack">
         {rows.map((row) => (
-          <form action={updateReportingEntityAction} className="card" key={row.id}>
+          <MasterForm action={updateReportingEntityAction} className="card" key={row.id}>
+            <input type="hidden" name="revision" value={row.revision} />
             <input type="hidden" name="id" value={row.id} />
             <div className="context-form">
               <label className="field">
@@ -57,7 +59,7 @@ export default async function ReportingEntitiesPage() {
               <button className="button secondary">保存</button>
             </div>
             <p className="muted">設定済み年度: {row._count.fiscalYearProfiles}件</p>
-          </form>
+          </MasterForm>
         ))}
       </div>
     </div>

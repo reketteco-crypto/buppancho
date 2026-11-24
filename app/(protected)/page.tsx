@@ -1,140 +1,116 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { Boxes, PackagePlus, Search } from "lucide-react";
-import { requireSession } from "@/lib/auth/session";
-import { getDb } from "@/lib/db/client";
-import { formatYen } from "@/lib/inventory/money";
-
+import { ArrowUpRight, ShoppingBag, BadgeJapaneseYen } from "lucide-react";
+import { commerceContext, todayTokyo } from "@/lib/commerce/view";
+import { transactionScope } from "@/lib/commerce/scope";
+import { inputDrafts } from "@/lib/commerce/input-drafts";
+import { salesSummary } from "@/lib/commerce/sales-list";
 export default async function HomePage() {
-  const session = await requireSession();
-  if (!session.userAccount.workspace.setupCompletedAt) redirect("/setup");
-  const db = getDb();
-  const businessUnitId = session.activeBusinessUnitId;
-  const workspaceId = session.userAccount.workspaceId;
-  const [balances, uniqueCount, recentPurchases, recentMovements] = businessUnitId
-    ? await Promise.all([
-        db.inventoryCostBalance.findMany({
-          where: { businessUnitId },
-          include: { itemVariant: { include: { inventoryItem: true } } },
-        }),
-        db.uniqueStockUnit.count({
-          where: {
-            workspaceId,
-            status: "IN_STOCK",
-            itemVariant: { inventoryItem: { businessUnitId } },
-          },
-        }),
-        db.purchase.findMany({
-          where: { workspaceId, businessUnitId },
-          include: { supplier: true },
-          orderBy: { createdAt: "desc" },
-          take: 5,
-        }),
-        db.stockMovement.findMany({
-          where: { businessUnitId },
-          include: { itemVariant: { include: { inventoryItem: true } } },
-          orderBy: { movementAt: "desc" },
-          take: 5,
-        }),
-      ])
-    : ([[], 0, [], []] as const);
-  const quantity = balances.reduce(
-    (sum, row) => sum + (row.trackingMode === "QUANTITY" ? row.quantity : 0),
-    0,
-  );
-  const value = balances.reduce((sum, row) => sum + row.carryingCostTotalJpy, 0n);
-  const quick = [
-    ["/purchases/new", "仕入れ登録", PackagePlus],
-    ["/inventory", "商品検索", Search],
-    ["/inventory/operations/new", "在庫移動", Boxes],
-  ] as const;
+  const c = await commerceContext(),
+    scope = transactionScope(c);
+  const today = todayTokyo(),
+    month = today.slice(5, 7);
+  const [summary, drafts, waiting] = await Promise.all([
+    c.db.$transaction((tx) => salesSummary(tx, c, c.fiscalYear.year, month)),
+    inputDrafts(c.db, { ...c, year: c.fiscalYear.year }),
+    c.db.purchaseDocument.count({
+      where: { ...scope, status: { in: ["ORDERED", "PARTIALLY_RECEIVED"] } },
+    }),
+  ]);
+  const { revenue, unknown } = summary;
   return (
-    <div className="page">
-      <header className="page-header">
+    <div className="commerce">
+      <header className="commerce-heading">
         <div>
-          <p className="eyebrow">Phase 1 / Inventory</p>
-          <h1>在庫ダッシュボード</h1>
-          <p className="muted">
-            {session.activeBusinessUnit?.name ?? "販売部門未選択"}・
-            {session.selectedYear ? `${session.selectedYear}年` : "年度未選択"}
+          <p className="commerce-overline">
+            {new Date().toLocaleDateString("ja-JP", {
+              timeZone: "Asia/Tokyo",
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+              weekday: "long",
+            })}
           </p>
+          <h1>日々の記録を、ひとつに。</h1>
         </div>
-        <span className="status-chip">フェーズ1</span>
       </header>
-      <div className="metric-grid">
-        <div className="card metric">
-          <span>在庫数量</span>
-          <strong>{quantity.toLocaleString("ja-JP")}</strong>
-        </div>
-        <div className="card metric">
-          <span>個体在庫</span>
-          <strong>{uniqueCount.toLocaleString("ja-JP")}点</strong>
-        </div>
-        <div className="card metric">
-          <span>管理原価総額</span>
-          <strong>¥{formatYen(value)}</strong>
-        </div>
-        <div className="card metric">
-          <span>原価未確定</span>
-          <strong>0件</strong>
-        </div>
+      <div className="commerce-home-actions">
+        <Link href="/purchases/new">
+          <ShoppingBag size={22} />
+          <span>購入を記録</span>
+          <ArrowUpRight size={18} />
+        </Link>
+        <Link href="/sales/new">
+          <BadgeJapaneseYen size={22} />
+          <span>販売を記録</span>
+          <ArrowUpRight size={18} />
+        </Link>
       </div>
-      <section className="section-block">
-        <div className="section-heading">
-          <div>
-            <h2>クイック操作</h2>
-            <p className="muted">よく使う登録を開始します。</p>
-          </div>
-        </div>
-        <div className="card-grid">
-          {quick.map(([href, label, Icon]) => (
-            <Link href={href} className="card quick-card" key={href}>
-              <Icon size={22} />
-              <strong>{label}</strong>
+      {drafts.length > 0 && (
+        <section className="commerce-section">
+          <h2>入力の続き</h2>
+          {drafts.map((d) => (
+            <Link className="commerce-row" key={d.id} href={d.href}>
+              <div>
+                <strong>{d.title}</strong>
+                {d.kind === "COMMERCE_SALE_BATCH" && (
+                  <span className="commerce-secondary">
+                    全{d.total.toLocaleString("ja-JP")}件 · 入力途中
+                    {d.remaining.toLocaleString("ja-JP")}件 · 保存済み
+                    {d.saved.toLocaleString("ja-JP")}件
+                  </span>
+                )}
+                <span className="commerce-secondary">
+                  {d.updatedAt.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
+                </span>
+              </div>
+              <ArrowUpRight size={16} />
             </Link>
           ))}
+        </section>
+      )}
+      <section className="commerce-section">
+        <h2>
+          {c.fiscalYear.year === Number(today.slice(0, 4))
+            ? "今月の販売"
+            : `${c.fiscalYear.year}年${Number(month)}月の販売`}
+        </h2>
+        <div className="commerce-account-grid commerce-section">
+          <div className="commerce-account">
+            <span className="commerce-secondary">売上</span>
+            <strong>¥{revenue.toLocaleString("ja-JP")}</strong>
+          </div>
+          <div className="commerce-account">
+            <span className="commerce-secondary">販売件数</span>
+            <strong>
+              {summary.count}
+              <small> 件</small>
+            </strong>
+          </div>
         </div>
       </section>
-      <div className="two-column">
-        <section className="card">
-          <h2>最近の仕入れ</h2>
-          {recentPurchases.length ? (
-            <ul className="activity-list">
-              {recentPurchases.map((row) => (
-                <li key={row.id}>
-                  <Link href={`/purchases/${row.id}`}>
-                    <strong>{row.purchaseCode}</strong>
-                    <span>
-                      {row.supplier.name}・¥{formatYen(row.purchaseTotalJpy)}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="empty-state">仕入れはまだありません。</p>
+      {(waiting > 0 || unknown > 0) && (
+        <section className="commerce-section">
+          <h2>確認すること</h2>
+          {waiting > 0 && (
+            <Link className="commerce-row" href="/purchases?status=ORDERED">
+              <div>
+                <strong>受取待ちの購入</strong>
+              </div>
+              <span>{waiting} 件</span>
+              <ArrowUpRight size={16} />
+            </Link>
+          )}
+          {unknown > 0 && (
+            <Link className="commerce-row" href="/sales">
+              <div>
+                <strong>費用・原価が未確認の販売</strong>
+              </div>
+              <span>{unknown} 件</span>
+              <ArrowUpRight size={16} />
+            </Link>
           )}
         </section>
-        <section className="card">
-          <h2>最近の在庫移動</h2>
-          {recentMovements.length ? (
-            <ul className="activity-list">
-              {recentMovements.map((row) => (
-                <li key={row.id}>
-                  <Link href={`/inventory/${row.itemVariant.inventoryItem.id}`}>
-                    <strong>{row.itemVariant.inventoryItem.name}</strong>
-                    <span>
-                      {row.movementType}・{row.quantity}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="empty-state">在庫移動はまだありません。</p>
-          )}
-        </section>
-      </div>
+      )}
     </div>
   );
 }

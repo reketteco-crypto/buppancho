@@ -71,10 +71,11 @@ enum CounterpartyType {
 }
 
 enum SequenceKind {
-  ITEM     @map("item")
-  VARIANT  @map("variant")
-  UNIT     @map("unit")
-  PURCHASE @map("purchase")
+  ITEM      @map("item")
+  VARIANT   @map("variant")
+  UNIT      @map("unit")
+  PURCHASE  @map("purchase")
+  SALES_SKU @map("sales_sku")
 
   @@map("sequence_kind")
 }
@@ -117,6 +118,7 @@ enum InventoryCostStatus {
 }
 
 enum UniqueStockStatus {
+  SUPPLIER_RETURNED  @map("supplier_returned")
   IN_STOCK           @map("in_stock")
   RESERVED           @map("reserved")
   SOLD               @map("sold")
@@ -152,6 +154,8 @@ enum PurchaseStatus {
 }
 
 enum InventoryOperationType {
+  PURCHASE_RETURN   @map("purchase_return")
+  STOCKTAKE         @map("stocktake")
   PURCHASE_RECEIPT  @map("purchase_receipt")
   PURCHASE_REVERSAL @map("purchase_reversal")
   LOCATION_TRANSFER @map("location_transfer")
@@ -160,11 +164,14 @@ enum InventoryOperationType {
   PERSONAL_USE      @map("personal_use")
   ADJUSTMENT_IN     @map("adjustment_in")
   ADJUSTMENT_OUT    @map("adjustment_out")
+  SALE_COMPLETION   @map("sale_completion")
+  SALE_RETURN       @map("sale_return")
 
   @@map("inventory_operation_type")
 }
 
 enum StockMovementType {
+  PURCHASE_RETURN   @map("purchase_return")
   RECEIPT           @map("receipt")
   RECEIPT_REVERSAL  @map("receipt_reversal")
   LOCATION_TRANSFER @map("location_transfer")
@@ -173,11 +180,81 @@ enum StockMovementType {
   PERSONAL_USE      @map("personal_use")
   ADJUSTMENT_IN     @map("adjustment_in")
   ADJUSTMENT_OUT    @map("adjustment_out")
+  SALE_OUT          @map("sale_out")
+  RETURN_IN         @map("return_in")
+  RETURN_DEFECTIVE  @map("return_defective")
+  RETURN_DISPOSAL   @map("return_disposal")
 
   @@map("stock_movement_type")
 }
 
+enum SalesChannelType {
+  MERCARI          @map("mercari")
+  RAKUMA           @map("rakuma")
+  YAHOO_FLEAMARKET @map("yahoo_fleamarket")
+  MERCARI_SHOPS    @map("mercari_shops")
+  OTHER            @map("other")
+
+  @@map("sales_channel_type")
+}
+
+enum SalesSkuType {
+  SINGLE @map("single")
+  BUNDLE @map("bundle")
+
+  @@map("sales_sku_type")
+}
+
+enum ListingStatus {
+  DRAFT    @map("draft")
+  ACTIVE   @map("active")
+  PAUSED   @map("paused")
+  SOLD_OUT @map("sold_out")
+  ENDED    @map("ended")
+
+  @@map("listing_status")
+}
+
+enum SalesOrderStatus {
+  DRAFT               @map("draft")
+  CONFIRMED           @map("confirmed")
+  AWAITING_SHIPMENT   @map("awaiting_shipment")
+  SHIPPED             @map("shipped")
+  AWAITING_COMPLETION @map("awaiting_completion")
+  COMPLETED           @map("completed")
+  CANCELLED           @map("cancelled")
+  RETURNED            @map("returned")
+
+  @@map("sales_order_status")
+}
+
+enum ReservationStatus {
+  RESERVED @map("reserved")
+  CONSUMED @map("consumed")
+  RELEASED @map("released")
+
+  @@map("reservation_status")
+}
+
+enum ShipmentStatus {
+  PENDING   @map("pending")
+  SHIPPED   @map("shipped")
+  DELIVERED @map("delivered")
+  RETURNED  @map("returned")
+
+  @@map("shipment_status")
+}
+
+enum ReturnDisposition {
+  RESTOCK   @map("restock")
+  DEFECTIVE @map("defective")
+  DISPOSED  @map("disposed")
+
+  @@map("return_disposition")
+}
+
 model Workspace {
+  revision            Int                  @default(0)
   id                  String               @id @default(uuid()) @db.Uuid
   name                String
   timezone            String               @default("Asia/Tokyo")
@@ -198,23 +275,29 @@ model Workspace {
   uniqueStockUnits    UniqueStockUnit[]
   purchases           Purchase[]
   inventoryOperations InventoryOperation[]
+  salesChannels       SalesChannel[]
+  salesSkus           SalesSku[]
+  salesOrders         SalesOrder[]
 
   @@map("workspace")
 }
 
 model Operator {
-  id                  String                   @id @default(uuid()) @db.Uuid
-  workspaceId         String                   @map("workspace_id") @db.Uuid
-  displayName         String                   @map("display_name")
-  active              Boolean                  @default(true)
-  createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
-  workspace           Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  defaultAssignments  BusinessUnitAssignment[] @relation("DefaultAssignmentOperator")
-  sessions            AuthSession[]
-  auditLogs           AuditLog[]
-  inventoryOperations InventoryOperation[]
-  stockMovements      StockMovement[]
+  revision              Int                      @default(0)
+  id                    String                   @id @default(uuid()) @db.Uuid
+  workspaceId           String                   @map("workspace_id") @db.Uuid
+  displayName           String                   @map("display_name")
+  active                Boolean                  @default(true)
+  createdAt             DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace             Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  defaultAssignments    BusinessUnitAssignment[] @relation("DefaultAssignmentOperator")
+  sessions              AuthSession[]
+  auditLogs             AuditLog[]
+  inventoryOperations   InventoryOperation[]
+  stockMovements        StockMovement[]
+  listingPriceHistories ListingPriceHistory[]
+  salesOrderEvents      SalesOrderEvent[]
 
   @@unique([workspaceId, displayName])
   @@index([workspaceId, active])
@@ -271,6 +354,7 @@ model AuthLoginThrottle {
 }
 
 model ReportingEntity {
+  revision           Int                 @default(0)
   id                 String              @id @default(uuid()) @db.Uuid
   workspaceId        String              @map("workspace_id") @db.Uuid
   displayName        String              @map("display_name")
@@ -281,6 +365,7 @@ model ReportingEntity {
   workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   fiscalYearProfiles FiscalYearProfile[]
   purchases          Purchase[]
+  salesOrders        SalesOrder[]
 
   @@unique([workspaceId, displayName])
   @@index([workspaceId, active])
@@ -288,6 +373,7 @@ model ReportingEntity {
 }
 
 model FiscalYearProfile {
+  revision                     Int                      @default(0)
   id                           String                   @id @default(uuid()) @db.Uuid
   reportingEntityId            String                   @map("reporting_entity_id") @db.Uuid
   year                         Int                      @db.SmallInt
@@ -311,6 +397,7 @@ model FiscalYearProfile {
 }
 
 model BusinessUnit {
+  revision            Int                      @default(0)
   id                  String                   @id @default(uuid()) @db.Uuid
   workspaceId         String                   @map("workspace_id") @db.Uuid
   code                String
@@ -328,6 +415,8 @@ model BusinessUnit {
   purchases           Purchase[]
   inventoryOperations InventoryOperation[]
   stockMovements      StockMovement[]
+  salesSkus           SalesSku[]
+  salesOrders         SalesOrder[]
 
   @@unique([workspaceId, code])
   @@unique([workspaceId, name])
@@ -336,6 +425,7 @@ model BusinessUnit {
 }
 
 model BusinessUnitAssignment {
+  revision            Int               @default(0)
   id                  String            @id @default(uuid()) @db.Uuid
   businessUnitId      String            @map("business_unit_id") @db.Uuid
   fiscalYearProfileId String            @map("fiscal_year_profile_id") @db.Uuid
@@ -376,22 +466,26 @@ model AuditLog {
 }
 
 model StorageLocation {
-  id               String            @id @default(uuid()) @db.Uuid
-  workspaceId      String            @map("workspace_id") @db.Uuid
-  businessUnitId   String?           @map("business_unit_id") @db.Uuid
-  code             String
-  name             String
-  active           Boolean           @default(true)
-  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
-  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  businessUnit     BusinessUnit?     @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
-  defaultForItems  InventoryItem[]
-  receivedLots     InventoryLot[]
-  uniqueStockUnits UniqueStockUnit[]
-  movementsFrom    StockMovement[]   @relation("MovementFrom")
-  movementsTo      StockMovement[]   @relation("MovementTo")
-  purchases        Purchase[]
+  revision                    Int                          @default(0)
+  id                          String                       @id @default(uuid()) @db.Uuid
+  workspaceId                 String                       @map("workspace_id") @db.Uuid
+  businessUnitId              String?                      @map("business_unit_id") @db.Uuid
+  code                        String
+  name                        String
+  active                      Boolean                      @default(true)
+  createdAt                   DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                   DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace                   Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  businessUnit                BusinessUnit?                @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  defaultForItems             InventoryItem[]
+  receivedLots                InventoryLot[]
+  uniqueStockUnits            UniqueStockUnit[]
+  movementsFrom               StockMovement[]              @relation("MovementFrom")
+  movementsTo                 StockMovement[]              @relation("MovementTo")
+  purchases                   Purchase[]
+  inventoryReservations       InventoryReservation[]
+  orderComponentConsumptions  OrderComponentConsumption[]
+  returnComponentDispositions ReturnComponentDisposition[]
 
   @@unique([workspaceId, code])
   @@index([workspaceId, active])
@@ -400,17 +494,20 @@ model StorageLocation {
 }
 
 model Counterparty {
-  id          String           @id @default(uuid()) @db.Uuid
-  workspaceId String           @map("workspace_id") @db.Uuid
-  name        String
-  type        CounterpartyType @default(SUPPLIER)
-  currency    String           @default("JPY")
-  memo        String?
-  active      Boolean          @default(true)
-  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
-  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  purchases   Purchase[]
+  defaultCurrency         String           @default("JPY") @map("default_currency")
+  defaultAllocationMethod String           @default("VALUE") @map("default_allocation_method")
+  revision                Int              @default(0)
+  id                      String           @id @default(uuid()) @db.Uuid
+  workspaceId             String           @map("workspace_id") @db.Uuid
+  name                    String
+  type                    CounterpartyType @default(SUPPLIER)
+  currency                String           @default("JPY")
+  memo                    String?
+  active                  Boolean          @default(true)
+  createdAt               DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace               Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  purchases               Purchase[]
 
   @@unique([workspaceId, name, type])
   @@index([workspaceId, type, active])
@@ -428,6 +525,7 @@ model WorkspaceSequence {
 }
 
 model InventoryItem {
+  revision                 Int                     @default(0)
   id                       String                  @id @default(uuid()) @db.Uuid
   workspaceId              String                  @map("workspace_id") @db.Uuid
   businessUnitId           String                  @map("business_unit_id") @db.Uuid
@@ -455,21 +553,25 @@ model InventoryItem {
 }
 
 model ItemVariant {
-  id               String                 @id @default(uuid()) @db.Uuid
-  workspaceId      String                 @map("workspace_id") @db.Uuid
-  inventoryItemId  String                 @map("inventory_item_id") @db.Uuid
-  variantCode      String                 @map("variant_code")
-  attributesJson   Json                   @default("{}") @map("attributes_json")
-  active           Boolean                @default(true)
-  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
-  inventoryItem    InventoryItem          @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
-  workspace        Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  inventoryLots    InventoryLot[]
-  uniqueStockUnits UniqueStockUnit[]
-  costBalances     InventoryCostBalance[]
-  purchaseLines    PurchaseLine[]
-  stockMovements   StockMovement[]
+  id                          String                       @id @default(uuid()) @db.Uuid
+  workspaceId                 String                       @map("workspace_id") @db.Uuid
+  inventoryItemId             String                       @map("inventory_item_id") @db.Uuid
+  variantCode                 String                       @map("variant_code")
+  attributesJson              Json                         @default("{}") @map("attributes_json")
+  active                      Boolean                      @default(true)
+  createdAt                   DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                   DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  inventoryItem               InventoryItem                @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  workspace                   Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  inventoryLots               InventoryLot[]
+  uniqueStockUnits            UniqueStockUnit[]
+  costBalances                InventoryCostBalance[]
+  purchaseLines               PurchaseLine[]
+  stockMovements              StockMovement[]
+  salesSkuComponents          SalesSkuComponent[]
+  inventoryReservations       InventoryReservation[]
+  orderComponentConsumptions  OrderComponentConsumption[]
+  returnComponentDispositions ReturnComponentDisposition[]
 
   @@unique([inventoryItemId, variantCode])
   @@unique([workspaceId, variantCode])
@@ -478,47 +580,55 @@ model ItemVariant {
 }
 
 model InventoryLot {
-  id                 String                  @id @default(uuid()) @db.Uuid
-  itemVariantId      String                  @map("item_variant_id") @db.Uuid
-  trackingMode       InventoryManagementType @map("tracking_mode")
-  purchaseLineId     String?                 @unique @map("purchase_line_id") @db.Uuid
-  receivedDate       DateTime                @map("received_date") @db.Date
-  receivedQuantity   Int                     @map("received_quantity")
-  remainingQuantity  Int                     @map("remaining_quantity")
-  landedCostTotalJpy BigInt                  @map("landed_cost_total_jpy") @db.BigInt
-  unitCostJpy        Decimal                 @map("unit_cost_jpy") @db.Decimal(20, 6)
-  costStatus         InventoryCostStatus     @default(FINAL) @map("cost_status")
-  storageLocationId  String                  @map("storage_location_id") @db.Uuid
-  createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
-  itemVariant        ItemVariant             @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
-  purchaseLine       PurchaseLine?           @relation(fields: [purchaseLineId], references: [id], onDelete: Restrict)
-  storageLocation    StorageLocation         @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
-  uniqueStockUnits   UniqueStockUnit[]
-  stockMovements     StockMovement[]
+  documentReceiptLine         PurchaseReceiptLine?
+  id                          String                       @id @default(uuid()) @db.Uuid
+  itemVariantId               String                       @map("item_variant_id") @db.Uuid
+  trackingMode                InventoryManagementType      @map("tracking_mode")
+  purchaseLineId              String?                      @unique @map("purchase_line_id") @db.Uuid
+  receivedDate                DateTime                     @map("received_date") @db.Date
+  receivedQuantity            Int                          @map("received_quantity")
+  remainingQuantity           Int                          @map("remaining_quantity")
+  landedCostTotalJpy          BigInt                       @map("landed_cost_total_jpy") @db.BigInt
+  unitCostJpy                 Decimal                      @map("unit_cost_jpy") @db.Decimal(20, 6)
+  costStatus                  InventoryCostStatus          @default(FINAL) @map("cost_status")
+  storageLocationId           String                       @map("storage_location_id") @db.Uuid
+  createdAt                   DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+  itemVariant                 ItemVariant                  @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
+  purchaseLine                PurchaseLine?                @relation(fields: [purchaseLineId], references: [id], onDelete: Restrict)
+  storageLocation             StorageLocation              @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
+  uniqueStockUnits            UniqueStockUnit[]
+  stockMovements              StockMovement[]
+  inventoryReservations       InventoryReservation[]
+  orderComponentConsumptions  OrderComponentConsumption[]
+  returnComponentDispositions ReturnComponentDisposition[]
 
   @@index([itemVariantId, receivedDate, id])
   @@map("inventory_lot")
 }
 
 model UniqueStockUnit {
-  id                 String            @id @default(uuid()) @db.Uuid
-  workspaceId        String            @map("workspace_id") @db.Uuid
-  itemVariantId      String            @map("item_variant_id") @db.Uuid
-  inventoryLotId     String            @map("inventory_lot_id") @db.Uuid
-  individualCode     String            @map("individual_code")
-  condition          String
-  measurementsJson   Json              @default("{}") @map("measurements_json")
-  acquisitionCostJpy BigInt            @map("acquisition_cost_jpy") @db.BigInt
-  storageLocationId  String            @map("storage_location_id") @db.Uuid
-  status             UniqueStockStatus @default(IN_STOCK)
-  memo               String?
-  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
-  workspace          Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  itemVariant        ItemVariant       @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
-  inventoryLot       InventoryLot      @relation(fields: [inventoryLotId], references: [id], onDelete: Restrict)
-  storageLocation    StorageLocation   @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
-  stockMovements     StockMovement[]
+  id                          String                       @id @default(uuid()) @db.Uuid
+  workspaceId                 String                       @map("workspace_id") @db.Uuid
+  itemVariantId               String                       @map("item_variant_id") @db.Uuid
+  inventoryLotId              String                       @map("inventory_lot_id") @db.Uuid
+  individualCode              String                       @map("individual_code")
+  condition                   String
+  measurementsJson            Json                         @default("{}") @map("measurements_json")
+  acquisitionCostJpy          BigInt                       @map("acquisition_cost_jpy") @db.BigInt
+  storageLocationId           String                       @map("storage_location_id") @db.Uuid
+  status                      UniqueStockStatus            @default(IN_STOCK)
+  memo                        String?
+  createdAt                   DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                   DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace                   Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  itemVariant                 ItemVariant                  @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
+  inventoryLot                InventoryLot                 @relation(fields: [inventoryLotId], references: [id], onDelete: Restrict)
+  storageLocation             StorageLocation              @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
+  stockMovements              StockMovement[]
+  salesSkuComponents          SalesSkuComponent[]
+  inventoryReservations       InventoryReservation[]
+  orderComponentConsumptions  OrderComponentConsumption[]
+  returnComponentDispositions ReturnComponentDisposition[]
 
   @@unique([workspaceId, individualCode])
   @@index([itemVariantId, status])
@@ -545,6 +655,7 @@ model InventoryCostBalance {
 
 model Purchase {
   id                String          @id @default(uuid()) @db.Uuid
+  revision          Int             @default(0)
   workspaceId       String          @map("workspace_id") @db.Uuid
   businessUnitId    String          @map("business_unit_id") @db.Uuid
   reportingEntityId String          @map("reporting_entity_id") @db.Uuid
@@ -561,6 +672,7 @@ model Purchase {
   status            PurchaseStatus  @default(DRAFT)
   memo              String?
   finalizedAt       DateTime?       @map("finalized_at") @db.Timestamptz(3)
+  // Draft cancellation has no finalizedAt and never creates a receipt.
   cancelledAt       DateTime?       @map("cancelled_at") @db.Timestamptz(3)
   createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -604,6 +716,7 @@ model PurchaseLine {
 }
 
 model InventoryOperation {
+  valuationOrder Decimal                @default(dbgenerated("nextval('inventory_valuation_order_seq')")) @map("valuation_order") @db.Decimal(60, 30)
   id             String                 @id @default(uuid()) @db.Uuid
   workspaceId    String                 @map("workspace_id") @db.Uuid
   businessUnitId String                 @map("business_unit_id") @db.Uuid
@@ -626,36 +739,997 @@ model InventoryOperation {
 }
 
 model StockMovement {
-  id                    String             @id @default(uuid()) @db.Uuid
-  operationId           String             @map("operation_id") @db.Uuid
-  itemVariantId         String             @map("item_variant_id") @db.Uuid
-  inventoryLotId        String?            @map("inventory_lot_id") @db.Uuid
-  uniqueStockUnitId     String?            @map("unique_stock_unit_id") @db.Uuid
-  movementType          StockMovementType  @map("movement_type")
-  quantity              Int
-  costTotalJpy          BigInt             @map("cost_total_jpy") @db.BigInt
-  movementAt            DateTime           @map("movement_at") @db.Timestamptz(3)
-  businessUnitId        String             @map("business_unit_id") @db.Uuid
-  storageLocationFromId String?            @map("storage_location_from_id") @db.Uuid
-  storageLocationToId   String?            @map("storage_location_to_id") @db.Uuid
-  sourceType            String             @map("source_type")
-  sourceId              String             @map("source_id") @db.Uuid
-  idempotencyKey        String             @unique @map("idempotency_key")
-  operatorId            String             @map("operator_id") @db.Uuid
-  note                  String?
-  createdAt             DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
-  operation             InventoryOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
-  itemVariant           ItemVariant        @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
-  inventoryLot          InventoryLot?      @relation(fields: [inventoryLotId], references: [id], onDelete: Restrict)
-  uniqueStockUnit       UniqueStockUnit?   @relation(fields: [uniqueStockUnitId], references: [id], onDelete: Restrict)
-  businessUnit          BusinessUnit       @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
-  storageLocationFrom   StorageLocation?   @relation("MovementFrom", fields: [storageLocationFromId], references: [id], onDelete: Restrict)
-  storageLocationTo     StorageLocation?   @relation("MovementTo", fields: [storageLocationToId], references: [id], onDelete: Restrict)
-  operator              Operator           @relation(fields: [operatorId], references: [id], onDelete: Restrict)
+  receiptCostCorrections ReceiptCostCorrection[]
+  id                     String                  @id @default(uuid()) @db.Uuid
+  operationId            String                  @map("operation_id") @db.Uuid
+  itemVariantId          String                  @map("item_variant_id") @db.Uuid
+  inventoryLotId         String?                 @map("inventory_lot_id") @db.Uuid
+  uniqueStockUnitId      String?                 @map("unique_stock_unit_id") @db.Uuid
+  movementType           StockMovementType       @map("movement_type")
+  quantity               Int
+  costTotalJpy           BigInt                  @map("cost_total_jpy") @db.BigInt
+  movementAt             DateTime                @map("movement_at") @db.Timestamptz(3)
+  businessUnitId         String                  @map("business_unit_id") @db.Uuid
+  storageLocationFromId  String?                 @map("storage_location_from_id") @db.Uuid
+  storageLocationToId    String?                 @map("storage_location_to_id") @db.Uuid
+  sourceType             String                  @map("source_type")
+  sourceId               String                  @map("source_id") @db.Uuid
+  idempotencyKey         String                  @unique @map("idempotency_key")
+  operatorId             String                  @map("operator_id") @db.Uuid
+  note                   String?
+  createdAt              DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  operation              InventoryOperation      @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  itemVariant            ItemVariant             @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
+  inventoryLot           InventoryLot?           @relation(fields: [inventoryLotId], references: [id], onDelete: Restrict)
+  uniqueStockUnit        UniqueStockUnit?        @relation(fields: [uniqueStockUnitId], references: [id], onDelete: Restrict)
+  businessUnit           BusinessUnit            @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  storageLocationFrom    StorageLocation?        @relation("MovementFrom", fields: [storageLocationFromId], references: [id], onDelete: Restrict)
+  storageLocationTo      StorageLocation?        @relation("MovementTo", fields: [storageLocationToId], references: [id], onDelete: Restrict)
+  operator               Operator                @relation(fields: [operatorId], references: [id], onDelete: Restrict)
 
   @@index([itemVariantId, movementAt])
   @@index([inventoryLotId, movementAt])
   @@index([uniqueStockUnitId, movementAt])
   @@index([businessUnitId, movementAt])
   @@map("stock_movement")
+}
+
+model SalesChannel {
+  receivingAccountId      String?             @map("receiving_account_id") @db.Uuid
+  feeDeducted             Boolean             @default(true) @map("fee_deducted")
+  shippingDeducted        Boolean             @default(true) @map("shipping_deducted")
+  defaultShippingJpy      BigInt?             @map("default_shipping_jpy") @db.BigInt
+  defaultDeliveryMethodId String?             @map("default_delivery_method_id") @db.Uuid
+  skuSettings             SkuChannelSetting[]
+  revision                Int                 @default(0)
+  id                      String              @id @default(uuid()) @db.Uuid
+  workspaceId             String              @map("workspace_id") @db.Uuid
+  name                    String
+  type                    SalesChannelType
+  defaultFeeRate          Decimal?            @map("default_fee_rate") @db.Decimal(7, 6)
+  defaultShippingPayer    String?             @map("default_shipping_payer")
+  active                  Boolean             @default(true)
+  createdAt               DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace               Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  listings                Listing[]
+  salesOrders             SalesOrder[]
+
+  @@index([workspaceId, type])
+  @@index([workspaceId, active])
+  @@map("sales_channel")
+}
+
+model SalesSku {
+  supplySettings   SkuSupplySetting[]
+  revision         Int                 @default(0)
+  channelSettings  SkuChannelSetting[]
+  id               String              @id @default(uuid()) @db.Uuid
+  workspaceId      String              @map("workspace_id") @db.Uuid
+  businessUnitId   String              @map("business_unit_id") @db.Uuid
+  skuCode          String              @map("sku_code")
+  name             String
+  skuType          SalesSkuType        @map("sku_type")
+  description      String?
+  expectedPriceJpy BigInt?             @map("expected_price_jpy") @db.BigInt
+  active           Boolean             @default(true)
+  requestKey       String              @unique @map("request_key") @db.Uuid
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  businessUnit     BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  components       SalesSkuComponent[]
+  listings         Listing[]
+  orderLines       SalesOrderLine[]
+
+  @@unique([workspaceId, skuCode])
+  @@index([workspaceId, businessUnitId, active])
+  @@map("sales_sku")
+}
+
+model SalesSkuComponent {
+  id                String           @id @default(uuid()) @db.Uuid
+  salesSkuId        String           @map("sales_sku_id") @db.Uuid
+  itemVariantId     String?          @map("item_variant_id") @db.Uuid
+  uniqueStockUnitId String?          @map("unique_stock_unit_id") @db.Uuid
+  requiredQuantity  Int              @map("required_quantity")
+  salesSku          SalesSku         @relation(fields: [salesSkuId], references: [id], onDelete: Cascade)
+  itemVariant       ItemVariant?     @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
+  uniqueStockUnit   UniqueStockUnit? @relation(fields: [uniqueStockUnitId], references: [id], onDelete: Restrict)
+
+  @@unique([salesSkuId, itemVariantId])
+  @@unique([salesSkuId, uniqueStockUnitId])
+  @@index([itemVariantId])
+  @@index([uniqueStockUnitId])
+  @@map("sales_sku_component")
+}
+
+model Listing {
+  displayName             String?                @map("display_name")
+  expectedFeeSource       String                 @default("UNKNOWN") @map("expected_fee_source")
+  expectedFeeJpy          BigInt?                @map("expected_fee_jpy") @db.BigInt
+  expectedPackingJpy      BigInt?                @map("expected_packing_jpy") @db.BigInt
+  expectedOtherJpy        BigInt?                @map("expected_other_jpy") @db.BigInt
+  originReportingEntityId String?                @map("origin_reporting_entity_id") @db.Uuid
+  originAssignmentId      String?                @map("origin_assignment_id") @db.Uuid
+  originYear              Int?                   @map("origin_year")
+  workflowVersion         Int                    @default(1) @map("workflow_version")
+  revision                Int                    @default(0)
+  componentsSnapshot      Json?                  @map("components_snapshot")
+  returnPending           Boolean                @default(false) @map("return_pending")
+  reservations            InventoryReservation[]
+  completion              SalesOrder?            @relation("ListingCompletion")
+  id                      String                 @id @default(uuid()) @db.Uuid
+  salesSkuId              String                 @map("sales_sku_id") @db.Uuid
+  salesChannelId          String                 @map("sales_channel_id") @db.Uuid
+  externalListingId       String?                @map("external_listing_id")
+  url                     String?
+  listedAt                DateTime               @map("listed_at") @db.Timestamptz(3)
+  currentPriceJpy         BigInt                 @map("current_price_jpy") @db.BigInt
+  listedQuantity          Int                    @map("listed_quantity")
+  reservedQuantity        Int                    @default(0) @map("reserved_quantity")
+  expectedShippingJpy     BigInt?                @map("expected_shipping_jpy") @db.BigInt
+  feeRate                 Decimal                @map("fee_rate") @db.Decimal(7, 6)
+  status                  ListingStatus          @default(DRAFT)
+  requestKey              String                 @unique @map("request_key") @db.Uuid
+  createdAt               DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+  salesSku                SalesSku               @relation(fields: [salesSkuId], references: [id], onDelete: Restrict)
+  salesChannel            SalesChannel           @relation(fields: [salesChannelId], references: [id], onDelete: Restrict)
+  priceHistory            ListingPriceHistory[]
+  orderLines              SalesOrderLine[]
+
+  @@unique([salesChannelId, externalListingId])
+  @@index([salesSkuId, status])
+  @@map("listing")
+}
+
+model ListingPriceHistory {
+  id             String   @id @default(uuid()) @db.Uuid
+  listingId      String   @map("listing_id") @db.Uuid
+  priceJpy       BigInt   @map("price_jpy") @db.BigInt
+  effectiveAt    DateTime @map("effective_at") @db.Timestamptz(3)
+  reason         String?
+  operatorId     String   @map("operator_id") @db.Uuid
+  idempotencyKey String   @unique @map("idempotency_key") @db.Uuid
+  listing        Listing  @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  operator       Operator @relation(fields: [operatorId], references: [id], onDelete: Restrict)
+
+  @@index([listingId, effectiveAt])
+  @@map("listing_price_history")
+}
+
+model SalesOrder {
+  materialUses              MaterialUse[]
+  settlementSnapshot        Json?               @map("settlement_snapshot")
+  recordingMode             String              @default("LISTING") @map("recording_mode")
+  sourceDraftId             String?             @unique @map("source_draft_id") @db.Uuid
+  buyerName                 String?             @map("buyer_name")
+  saleSnapshot              Json?               @map("sale_snapshot")
+  completionListingId       String?             @unique @map("completion_listing_id") @db.Uuid
+  completionListing         Listing?            @relation("ListingCompletion", fields: [completionListingId], references: [id], onDelete: Restrict)
+  revision                  Int                 @default(0)
+  id                        String              @id @default(uuid()) @db.Uuid
+  workspaceId               String              @map("workspace_id") @db.Uuid
+  businessUnitId            String              @map("business_unit_id") @db.Uuid
+  reportingEntityId         String              @map("reporting_entity_id") @db.Uuid
+  salesChannelId            String              @map("sales_channel_id") @db.Uuid
+  externalOrderId           String?             @map("external_order_id")
+  orderedAt                 DateTime?           @map("ordered_at") @db.Timestamptz(3)
+  completedAt               DateTime?           @map("completed_at") @db.Timestamptz(3)
+  accountingRecognitionDate DateTime?           @map("accounting_recognition_date") @db.Date
+  status                    SalesOrderStatus    @default(DRAFT)
+  grossSalesJpy             BigInt              @map("gross_sales_jpy") @db.BigInt
+  discountJpy               BigInt              @default(0) @map("discount_jpy") @db.BigInt
+  feeJpy                    BigInt?             @map("fee_jpy") @db.BigInt
+  shippingJpy               BigInt?             @map("shipping_jpy") @db.BigInt
+  packingJpy                BigInt?             @map("packing_jpy") @db.BigInt
+  otherCostJpy              BigInt?             @map("other_cost_jpy") @db.BigInt
+  channelNetReceivableJpy   BigInt?             @map("channel_net_receivable_jpy") @db.BigInt
+  costStatus                InventoryCostStatus @default(PROVISIONAL) @map("cost_status")
+  memo                      String?
+  requestKey                String              @unique @map("request_key") @db.Uuid
+  createdAt                 DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                 DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  workspace                 Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  businessUnit              BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  reportingEntity           ReportingEntity     @relation(fields: [reportingEntityId], references: [id], onDelete: Restrict)
+  salesChannel              SalesChannel        @relation(fields: [salesChannelId], references: [id], onDelete: Restrict)
+  lines                     SalesOrderLine[]
+  shipment                  Shipment?
+  events                    SalesOrderEvent[]
+  returns                   SalesReturn[]
+
+  @@unique([salesChannelId, externalOrderId])
+  @@index([workspaceId, businessUnitId, orderedAt])
+  @@index([status, orderedAt])
+  @@map("sales_order")
+}
+
+model SalesOrderLine {
+  displayName          String?                     @map("display_name")
+  id                   String                      @id @default(uuid()) @db.Uuid
+  salesOrderId         String                      @map("sales_order_id") @db.Uuid
+  listingId            String?                     @map("listing_id") @db.Uuid
+  salesSkuId           String                      @map("sales_sku_id") @db.Uuid
+  quantity             Int
+  unitPriceJpy         BigInt                      @map("unit_price_jpy") @db.BigInt
+  allocatedDiscountJpy BigInt                      @default(0) @map("allocated_discount_jpy") @db.BigInt
+  managementCogsJpy    BigInt?                     @map("management_cogs_jpy") @db.BigInt
+  returnedQuantity     Int                         @default(0) @map("returned_quantity")
+  salesOrder           SalesOrder                  @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  listing              Listing?                    @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  salesSku             SalesSku                    @relation(fields: [salesSkuId], references: [id], onDelete: Restrict)
+  reservations         InventoryReservation[]
+  consumptions         OrderComponentConsumption[]
+  returnLines          SalesReturnLine[]
+
+  @@index([salesOrderId])
+  @@index([salesSkuId])
+  @@map("sales_order_line")
+}
+
+model ListingReturnCase {
+  id                String   @id @default(uuid()) @db.Uuid
+  listingId         String   @map("listing_id") @db.Uuid
+  workspaceId       String   @map("workspace_id") @db.Uuid
+  businessUnitId    String   @map("business_unit_id") @db.Uuid
+  reportingEntityId String   @map("reporting_entity_id") @db.Uuid
+  requestId         String   @unique @map("request_id") @db.Uuid
+  startedDate       DateTime @map("started_date") @db.Date
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([listingId, createdAt])
+  @@map("listing_return_case")
+}
+
+model ListingReturnSubmission {
+  id           String   @id @db.Uuid
+  draftId      String?  @unique @map("draft_id") @db.Uuid
+  caseId       String   @map("case_id") @db.Uuid
+  kind         String
+  occurredDate DateTime @map("occurred_date") @db.Date
+  reason       String
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([caseId])
+  @@map("listing_return_submission")
+}
+
+model ListingReturnMember {
+  id            String @id @default(uuid()) @db.Uuid
+  caseId        String @map("case_id") @db.Uuid
+  reservationId String @map("reservation_id") @db.Uuid
+  quantity      Int
+
+  @@unique([caseId, reservationId])
+  @@map("listing_return_member")
+}
+
+model ListingReturnHandling {
+  id           String   @id @default(uuid()) @db.Uuid
+  memberId     String   @map("member_id") @db.Uuid
+  requestId    String   @map("request_id") @db.Uuid
+  operationId  String?  @map("operation_id") @db.Uuid
+  disposition  String
+  quantity     Int
+  handledDate  DateTime @map("handled_date") @db.Date
+  costTotalJpy BigInt   @map("cost_total_jpy") @db.BigInt
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([requestId, memberId, disposition])
+  @@index([memberId])
+  @@map("listing_return_handling")
+}
+
+model InventoryReservation {
+  id                String            @id @default(uuid()) @db.Uuid
+  salesOrderLineId  String?           @map("sales_order_line_id") @db.Uuid
+  listingId         String?           @map("listing_id") @db.Uuid
+  listing           Listing?          @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  itemVariantId     String            @map("item_variant_id") @db.Uuid
+  inventoryLotId    String?           @map("inventory_lot_id") @db.Uuid
+  uniqueStockUnitId String?           @map("unique_stock_unit_id") @db.Uuid
+  storageLocationId String            @map("storage_location_id") @db.Uuid
+  quantity          Int
+  status            ReservationStatus @default(RESERVED)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  salesOrderLine    SalesOrderLine?   @relation(fields: [salesOrderLineId], references: [id], onDelete: Restrict)
+  itemVariant       ItemVariant       @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
+  inventoryLot      InventoryLot?     @relation(fields: [inventoryLotId], references: [id], onDelete: Restrict)
+  uniqueStockUnit   UniqueStockUnit?  @relation(fields: [uniqueStockUnitId], references: [id], onDelete: Restrict)
+  storageLocation   StorageLocation   @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
+
+  @@index([itemVariantId, status])
+  @@index([listingId, status])
+  @@index([inventoryLotId, status])
+  @@index([uniqueStockUnitId, status])
+  @@map("inventory_reservation")
+}
+
+// Partial input is never used directly as confirmed business data.
+model WorkflowDraft {
+  id             String       @id @db.Uuid
+  workspaceId    String       @map("workspace_id") @db.Uuid
+  businessUnitId String       @map("business_unit_id") @db.Uuid
+  operatorId     String       @map("operator_id") @db.Uuid
+  year           Int
+  /// SQL check also permits COMMERCE_SALE_BATCH, COMMERCE_SALE_REVIEW and COMMERCE_SALE_MAPPING.
+  kind           String
+  payload        Json
+  baseSnapshot   Json?        @map("base_snapshot")
+  revision       Int          @default(0)
+  archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(3)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  returnRecord   SalesReturn?
+
+  @@index([workspaceId, businessUnitId, year, archivedAt])
+  @@index([workspaceId, businessUnitId, kind, operatorId, year, archivedAt], map: "workflow_draft_batch_scope_idx")
+  @@map("workflow_draft")
+}
+
+model WorkflowRequest {
+  id             String   @id @db.Uuid
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  businessUnitId String   @map("business_unit_id") @db.Uuid
+  operatorId     String   @map("operator_id") @db.Uuid
+  userAccountId  String   @map("user_account_id") @db.Uuid
+  year           Int
+  kind           String
+  fingerprint    String
+  payload        Json
+  status         String   @default("PREPARED")
+  targetId       String?  @map("target_id") @db.Uuid
+  errorCode      String?  @map("error_code")
+  errorMessage   String?  @map("error_message")
+  errorFields    Json?    @map("error_fields")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([workspaceId, businessUnitId, operatorId, status])
+  @@map("workflow_request")
+}
+
+model DraftSaveReceipt {
+  id          String   @id @db.Uuid
+  draftId     String   @map("draft_id") @db.Uuid
+  fingerprint String
+  revision    Int
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([draftId])
+  @@map("draft_save_receipt")
+}
+
+model ValuationRun {
+  id             String                @id @default(uuid()) @db.Uuid
+  sequence       BigInt                @unique @default(autoincrement())
+  workspaceId    String                @map("workspace_id") @db.Uuid
+  businessUnitId String                @map("business_unit_id") @db.Uuid
+  operatorId     String                @map("operator_id") @db.Uuid
+  requestId      String                @unique @map("request_id") @db.Uuid
+  sourceOrderId  String?               @map("source_order_id") @db.Uuid
+  sourceType     String?               @map("source_type")
+  sourceId       String?               @map("source_id") @db.Uuid
+  summary        Json
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  adjustments    ValuationAdjustment[]
+
+  @@index([workspaceId, businessUnitId, createdAt])
+  @@map("valuation_run")
+}
+
+model EventDateCorrection {
+  id             String   @id @default(uuid()) @db.Uuid
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  businessUnitId String   @map("business_unit_id") @db.Uuid
+  operationId    String   @map("operation_id") @db.Uuid
+  requestId      String   @unique @map("request_id") @db.Uuid
+  previousDate   DateTime @map("previous_date") @db.Date
+  effectiveDate  DateTime @map("effective_date") @db.Date
+  valuationOrder Decimal? @map("valuation_order") @db.Decimal(60, 30)
+  reason         String
+  operatorId     String   @map("operator_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([workspaceId, businessUnitId, operationId, createdAt])
+  @@map("event_date_correction")
+}
+
+model StocktakeObservation {
+  id                String   @id @default(uuid()) @db.Uuid
+  operationId       String   @unique @map("operation_id") @db.Uuid
+  requestId         String   @unique @map("request_id") @db.Uuid
+  workspaceId       String   @map("workspace_id") @db.Uuid
+  businessUnitId    String   @map("business_unit_id") @db.Uuid
+  reportingEntityId String   @map("reporting_entity_id") @db.Uuid
+  itemVariantId     String   @map("item_variant_id") @db.Uuid
+  storageLocationId String   @map("storage_location_id") @db.Uuid
+  bookQuantity      Int      @map("book_quantity")
+  countedQuantity   Int      @map("counted_quantity")
+  difference        Int
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([workspaceId, businessUnitId, itemVariantId])
+  @@map("stocktake_observation")
+}
+
+model ValuationAdjustment {
+  id         String       @id @default(uuid()) @db.Uuid
+  runId      String       @map("run_id") @db.Uuid
+  targetType String       @map("target_type")
+  targetId   String       @map("target_id") @db.Uuid
+  beforeJpy  BigInt       @map("before_jpy") @db.BigInt
+  afterJpy   BigInt       @map("after_jpy") @db.BigInt
+  deltaJpy   BigInt       @map("delta_jpy") @db.BigInt
+  run        ValuationRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+
+  @@unique([runId, targetType, targetId])
+  @@index([targetType, targetId])
+  @@map("valuation_adjustment")
+}
+
+model InventoryRevision {
+  id             String @id @default(uuid()) @db.Uuid
+  businessUnitId String @unique @map("business_unit_id") @db.Uuid
+  revision       BigInt @default(0)
+
+  @@map("inventory_revision")
+}
+
+// Append-only journal also provides scoped operation-result lookup after a lost response.
+model WorkflowEvent {
+  id             String   @id @db.Uuid
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  businessUnitId String   @map("business_unit_id") @db.Uuid
+  operatorId     String   @map("operator_id") @db.Uuid
+  year           Int
+  kind           String
+  targetId       String   @map("target_id") @db.Uuid
+  occurredAt     DateTime @map("occurred_at") @db.Timestamptz(3)
+  detail         Json
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([workspaceId, businessUnitId, targetId])
+  @@map("workflow_event")
+}
+
+model OrderComponentConsumption {
+  id                String                       @id @default(uuid()) @db.Uuid
+  salesOrderLineId  String                       @map("sales_order_line_id") @db.Uuid
+  itemVariantId     String                       @map("item_variant_id") @db.Uuid
+  inventoryLotId    String?                      @map("inventory_lot_id") @db.Uuid
+  uniqueStockUnitId String?                      @map("unique_stock_unit_id") @db.Uuid
+  storageLocationId String                       @map("storage_location_id") @db.Uuid
+  quantity          Int
+  unitCostJpy       Decimal                      @map("unit_cost_jpy") @db.Decimal(20, 6)
+  costTotalJpy      BigInt                       @map("cost_total_jpy") @db.BigInt
+  costStatus        InventoryCostStatus          @default(FINAL) @map("cost_status")
+  createdAt         DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+  salesOrderLine    SalesOrderLine               @relation(fields: [salesOrderLineId], references: [id], onDelete: Restrict)
+  itemVariant       ItemVariant                  @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
+  inventoryLot      InventoryLot?                @relation(fields: [inventoryLotId], references: [id], onDelete: Restrict)
+  uniqueStockUnit   UniqueStockUnit?             @relation(fields: [uniqueStockUnitId], references: [id], onDelete: Restrict)
+  storageLocation   StorageLocation              @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
+  dispositions      ReturnComponentDisposition[]
+
+  @@index([salesOrderLineId])
+  @@map("order_component_consumption")
+}
+
+model Shipment {
+  id                String         @id @default(uuid()) @db.Uuid
+  salesOrderId      String         @unique @map("sales_order_id") @db.Uuid
+  shippedAt         DateTime?      @map("shipped_at") @db.Timestamptz(3)
+  shippingMethod    String?        @map("shipping_method")
+  trackingNumber    String?        @map("tracking_number")
+  actualShippingJpy BigInt?        @map("actual_shipping_jpy") @db.BigInt
+  status            ShipmentStatus @default(PENDING)
+  salesOrder        SalesOrder     @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+
+  @@map("shipment")
+}
+
+model SalesOrderEvent {
+  id             String            @id @default(uuid()) @db.Uuid
+  salesOrderId   String            @map("sales_order_id") @db.Uuid
+  fromStatus     SalesOrderStatus? @map("from_status")
+  toStatus       SalesOrderStatus  @map("to_status")
+  occurredAt     DateTime          @map("occurred_at") @db.Timestamptz(3)
+  operatorId     String            @map("operator_id") @db.Uuid
+  reason         String?
+  idempotencyKey String            @unique @map("idempotency_key") @db.Uuid
+  salesOrder     SalesOrder        @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  operator       Operator          @relation(fields: [operatorId], references: [id], onDelete: Restrict)
+
+  @@index([salesOrderId, occurredAt])
+  @@map("sales_order_event")
+}
+
+model SalesReturn {
+  id                String            @id @default(uuid()) @db.Uuid
+  salesOrderId      String            @map("sales_order_id") @db.Uuid
+  returnedAt        DateTime          @map("returned_at") @db.Timestamptz(3)
+  salesRefundJpy    BigInt            @default(0) @map("sales_refund_jpy") @db.BigInt
+  feeRefundJpy      BigInt            @default(0) @map("fee_refund_jpy") @db.BigInt
+  shippingRefundJpy BigInt            @default(0) @map("shipping_refund_jpy") @db.BigInt
+  memo              String?
+  requestKey        String            @unique @map("request_key") @db.Uuid
+  sourceDraftId     String?           @unique @map("source_draft_id") @db.Uuid
+  sourceDraft       WorkflowDraft?    @relation(fields: [sourceDraftId], references: [id], onDelete: Restrict)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  salesOrder        SalesOrder        @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  lines             SalesReturnLine[]
+
+  @@index([salesOrderId, returnedAt])
+  @@map("sales_return")
+}
+
+model SalesReturnLine {
+  id               String                       @id @default(uuid()) @db.Uuid
+  salesReturnId    String                       @map("sales_return_id") @db.Uuid
+  salesOrderLineId String                       @map("sales_order_line_id") @db.Uuid
+  quantity         Int
+  componentOnly    Boolean                      @default(false) @map("component_only")
+  salesReturn      SalesReturn                  @relation(fields: [salesReturnId], references: [id], onDelete: Restrict)
+  salesOrderLine   SalesOrderLine               @relation(fields: [salesOrderLineId], references: [id], onDelete: Restrict)
+  dispositions     ReturnComponentDisposition[]
+
+  @@unique([salesReturnId, salesOrderLineId])
+  @@index([salesOrderLineId])
+  @@map("sales_return_line")
+}
+
+model ReturnComponentDisposition {
+  id                String                     @id @default(uuid()) @db.Uuid
+  salesReturnLineId String                     @map("sales_return_line_id") @db.Uuid
+  consumptionId     String?                    @map("consumption_id") @db.Uuid
+  itemVariantId     String                     @map("item_variant_id") @db.Uuid
+  inventoryLotId    String?                    @map("inventory_lot_id") @db.Uuid
+  uniqueStockUnitId String?                    @map("unique_stock_unit_id") @db.Uuid
+  storageLocationId String                     @map("storage_location_id") @db.Uuid
+  quantity          Int
+  disposition       ReturnDisposition
+  costTotalJpy      BigInt                     @map("cost_total_jpy") @db.BigInt
+  salesReturnLine   SalesReturnLine            @relation(fields: [salesReturnLineId], references: [id], onDelete: Restrict)
+  consumption       OrderComponentConsumption? @relation(fields: [consumptionId], references: [id], onDelete: Restrict)
+  itemVariant       ItemVariant                @relation(fields: [itemVariantId], references: [id], onDelete: Restrict)
+  inventoryLot      InventoryLot?              @relation(fields: [inventoryLotId], references: [id], onDelete: Restrict)
+  uniqueStockUnit   UniqueStockUnit?           @relation(fields: [uniqueStockUnitId], references: [id], onDelete: Restrict)
+  storageLocation   StorageLocation            @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
+
+  @@index([salesReturnLineId])
+  @@index([consumptionId])
+  @@map("return_component_disposition")
+}
+
+// Generic purchase documents. Legacy purchase records remain unchanged.
+model PurchaseDocument {
+  rateBasis         String                 @default("JPY") @map("rate_basis")
+  externalReference String?                @map("external_reference")
+  actualOrderJpy    BigInt?                @map("actual_order_jpy") @db.BigInt
+  importSource      Json?                  @map("import_source")
+  taxAmountJpy      BigInt?                @map("tax_amount_jpy") @db.BigInt
+  id                String                 @id @default(uuid()) @db.Uuid
+  workspaceId       String                 @map("workspace_id") @db.Uuid
+  businessUnitId    String                 @map("business_unit_id") @db.Uuid
+  reportingEntityId String                 @map("reporting_entity_id") @db.Uuid
+  supplierId        String                 @map("supplier_id") @db.Uuid
+  supplierName      String                 @map("supplier_name")
+  code              String
+  revision          Int                    @default(0)
+  purchasedDate     DateTime               @map("purchased_date") @db.Date
+  status            String                 @default("ORDERED")
+  currency          String                 @default("JPY")
+  exchangeRate      Decimal                @default(1) @map("exchange_rate") @db.Decimal(24, 10)
+  taxMode           String                 @default("INCLUDED") @map("tax_mode")
+  totalJpy          BigInt                 @map("total_jpy") @db.BigInt
+  costFinal         Boolean                @default(true) @map("cost_final")
+  memo              String?
+  requestKey        String                 @unique @map("request_key") @db.Uuid
+  sourceDraftId     String?                @unique @map("source_draft_id") @db.Uuid
+  createdAt         DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lines             PurchaseDocumentLine[]
+  charges           PurchaseCharge[]
+
+  @@unique([workspaceId, code])
+  @@unique([workspaceId, supplierId, externalReference])
+  @@index([workspaceId, businessUnitId, purchasedDate])
+  @@map("purchase_document")
+}
+
+model PurchaseDocumentLine {
+  sourceName       String?                    @map("source_name")
+  supplyItemId     String?                    @map("supply_item_id") @db.Uuid
+  supplyItem       SupplyItem?                @relation(fields: [supplyItemId], references: [id], onDelete: Restrict)
+  deliveries       InboundDeliveryLine[]
+  id               String                     @id @default(uuid()) @db.Uuid
+  documentId       String                     @map("document_id") @db.Uuid
+  position         Int
+  itemVariantId    String?                    @map("item_variant_id") @db.Uuid
+  name             String
+  purpose          String                     @default("STOCK")
+  trackingMode     String                     @default("QUANTITY") @map("tracking_mode")
+  quantity         Int
+  amount           Decimal                    @db.Decimal(24, 8)
+  priceBasis       String                     @default("UNIT") @map("price_basis")
+  productAmountJpy BigInt                     @map("product_amount_jpy") @db.BigInt
+  landedCostJpy    BigInt                     @map("landed_cost_jpy") @db.BigInt
+  receivedQuantity Int                        @default(0) @map("received_quantity")
+  weightG          Decimal?                   @map("weight_g") @db.Decimal(24, 8)
+  volumeCm3        Decimal?                   @map("volume_cm3") @db.Decimal(24, 8)
+  document         PurchaseDocument           @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  allocations      PurchaseChargeAllocation[]
+  receipts         PurchaseReceiptLine[]
+
+  @@unique([documentId, position])
+  @@index([itemVariantId])
+  @@map("purchase_document_line")
+}
+
+model PurchaseCharge {
+  recordedDate     DateTime?                  @map("recorded_date") @db.Date
+  basisSnapshot    Json?                      @map("basis_snapshot")
+  rateBasis        String                     @default("JPY") @map("rate_basis")
+  amountForeign    Decimal?                   @map("amount_foreign") @db.Decimal(24, 8)
+  currency         String                     @default("JPY")
+  exchangeRate     Decimal?                   @map("exchange_rate") @db.Decimal(24, 10)
+  deliveryId       String?                    @map("delivery_id") @db.Uuid
+  delivery         InboundDelivery?           @relation(fields: [deliveryId], references: [id], onDelete: Restrict)
+  supersedesId     String?                    @unique @map("supersedes_id") @db.Uuid
+  supersedes       PurchaseCharge?            @relation("charge_revision", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy     PurchaseCharge?            @relation("charge_revision")
+  reason           String?
+  refund           Boolean                    @default(false)
+  allocated        Boolean                    @default(false)
+  id               String                     @id @default(uuid()) @db.Uuid
+  documentId       String?                    @map("document_id") @db.Uuid
+  name             String
+  amountJpy        BigInt?                    @map("amount_jpy") @db.BigInt
+  allocationMethod String                     @default("VALUE") @map("allocation_method")
+  capitalized      Boolean                    @default(true)
+  createdAt        DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  document         PurchaseDocument?          @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  allocations      PurchaseChargeAllocation[]
+
+  @@index([documentId])
+  @@map("purchase_charge")
+}
+
+model PurchaseChargeAllocation {
+  id        String               @id @default(uuid()) @db.Uuid
+  chargeId  String               @map("charge_id") @db.Uuid
+  lineId    String               @map("line_id") @db.Uuid
+  amountJpy BigInt               @map("amount_jpy") @db.BigInt
+  charge    PurchaseCharge       @relation(fields: [chargeId], references: [id], onDelete: Restrict)
+  line      PurchaseDocumentLine @relation(fields: [lineId], references: [id], onDelete: Restrict)
+
+  @@unique([chargeId, lineId])
+  @@map("purchase_charge_allocation")
+}
+
+model PurchaseReceipt {
+  id                String                @id @default(uuid()) @db.Uuid
+  workspaceId       String                @map("workspace_id") @db.Uuid
+  businessUnitId    String                @map("business_unit_id") @db.Uuid
+  reportingEntityId String                @map("reporting_entity_id") @db.Uuid
+  receivedDate      DateTime              @map("received_date") @db.Date
+  storageLocationId String                @map("storage_location_id") @db.Uuid
+  operationId       String?               @unique @map("operation_id") @db.Uuid
+  requestKey        String                @unique @map("request_key") @db.Uuid
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  lines             PurchaseReceiptLine[]
+
+  @@index([workspaceId, businessUnitId, receivedDate])
+  @@map("purchase_receipt")
+}
+
+model PurchaseReceiptLine {
+  supplierReturns SupplierReturn[]
+  deliveryLinks   ReceiptDeliveryLink[]
+  deliveryLineId  String?                 @map("delivery_line_id") @db.Uuid
+  deliveryLine    InboundDeliveryLine?    @relation(fields: [deliveryLineId], references: [id], onDelete: Restrict)
+  costCorrections ReceiptCostCorrection[]
+  id              String                  @id @default(uuid()) @db.Uuid
+  receiptId       String                  @map("receipt_id") @db.Uuid
+  lineId          String                  @map("line_id") @db.Uuid
+  inventoryLotId  String?                 @unique @map("inventory_lot_id") @db.Uuid
+  quantity        Int
+  costJpy         BigInt                  @map("cost_jpy") @db.BigInt
+  receipt         PurchaseReceipt         @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  line            PurchaseDocumentLine    @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  inventoryLot    InventoryLot?           @relation(fields: [inventoryLotId], references: [id], onDelete: Restrict)
+
+  @@unique([receiptId, lineId])
+  @@map("purchase_receipt_line")
+}
+
+model DeliveryMethod {
+  id                      String  @id @default(uuid()) @db.Uuid
+  workspaceId             String  @map("workspace_id") @db.Uuid
+  revision                Int     @default(0)
+  name                    String
+  defaultShippingJpy      BigInt? @map("default_shipping_jpy") @db.BigInt
+  defaultAllocationMethod String  @default("VALUE") @map("default_allocation_method")
+  active                  Boolean @default(true)
+
+  @@unique([workspaceId, name])
+  @@map("delivery_method")
+}
+
+model SkuChannelSetting {
+  id               String       @id @default(uuid()) @db.Uuid
+  salesSkuId       String       @map("sales_sku_id") @db.Uuid
+  salesChannelId   String       @map("sales_channel_id") @db.Uuid
+  deliveryMethodId String?      @map("delivery_method_id") @db.Uuid
+  priceJpy         BigInt?      @map("price_jpy") @db.BigInt
+  shippingJpy      BigInt?      @map("shipping_jpy") @db.BigInt
+  sku              SalesSku     @relation(fields: [salesSkuId], references: [id], onDelete: Restrict)
+  channel          SalesChannel @relation(fields: [salesChannelId], references: [id], onDelete: Restrict)
+
+  @@unique([salesSkuId, salesChannelId])
+  @@map("sku_channel_setting")
+}
+
+model InboundDelivery {
+  id                String                @id @default(uuid()) @db.Uuid
+  workspaceId       String                @map("workspace_id") @db.Uuid
+  businessUnitId    String                @map("business_unit_id") @db.Uuid
+  reportingEntityId String                @map("reporting_entity_id") @db.Uuid
+  revision          Int                   @default(0)
+  code              String
+  shippedDate       DateTime              @map("shipped_date") @db.Date
+  deliveryMethodId  String?               @map("delivery_method_id") @db.Uuid
+  methodName        String?               @map("method_name")
+  counterpartyId    String?               @map("counterparty_id") @db.Uuid
+  reference         String?
+  memo              String?
+  requestKey        String                @unique @map("request_key") @db.Uuid
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  lines             InboundDeliveryLine[]
+  charges           PurchaseCharge[]
+
+  @@unique([workspaceId, code])
+  @@index([workspaceId, businessUnitId, shippedDate])
+  @@map("inbound_delivery")
+}
+
+model InboundDeliveryLine {
+  receiptLinks   ReceiptDeliveryLink[]
+  position       Int                   @default(0)
+  id             String                @id @default(uuid()) @db.Uuid
+  deliveryId     String                @map("delivery_id") @db.Uuid
+  purchaseLineId String                @map("purchase_line_id") @db.Uuid
+  quantity       Int
+  delivery       InboundDelivery       @relation(fields: [deliveryId], references: [id], onDelete: Restrict)
+  purchaseLine   PurchaseDocumentLine  @relation(fields: [purchaseLineId], references: [id], onDelete: Restrict)
+  receipts       PurchaseReceiptLine[]
+
+  @@unique([deliveryId, purchaseLineId])
+  @@map("inbound_delivery_line")
+}
+
+model ReceiptCostCorrection {
+  id             String              @id @default(uuid()) @db.Uuid
+  sequence       BigInt              @unique @default(autoincrement())
+  workspaceId    String              @map("workspace_id") @db.Uuid
+  businessUnitId String              @map("business_unit_id") @db.Uuid
+  receiptLineId  String              @map("receipt_line_id") @db.Uuid
+  movementId     String              @map("movement_id") @db.Uuid
+  operationId    String              @map("operation_id") @db.Uuid
+  requestId      String              @map("request_id") @db.Uuid
+  beforeJpy      BigInt              @map("before_jpy") @db.BigInt
+  afterJpy       BigInt              @map("after_jpy") @db.BigInt
+  reason         String
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  receiptLine    PurchaseReceiptLine @relation(fields: [receiptLineId], references: [id], onDelete: Restrict)
+  movement       StockMovement       @relation(fields: [movementId], references: [id], onDelete: Restrict)
+
+  @@unique([requestId, receiptLineId])
+  @@index([workspaceId, businessUnitId, sequence])
+  @@map("receipt_cost_correction")
+}
+
+model ReceiptDeliveryLink {
+  id             String              @id @default(uuid()) @db.Uuid
+  receiptLineId  String              @map("receipt_line_id") @db.Uuid
+  deliveryLineId String              @map("delivery_line_id") @db.Uuid
+  quantity       Int
+  requestId      String              @map("request_id") @db.Uuid
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  receiptLine    PurchaseReceiptLine @relation(fields: [receiptLineId], references: [id], onDelete: Restrict)
+  deliveryLine   InboundDeliveryLine @relation(fields: [deliveryLineId], references: [id], onDelete: Restrict)
+
+  @@unique([requestId, receiptLineId, deliveryLineId])
+  @@map("receipt_delivery_link")
+}
+
+model SupplierReturn {
+  id            String              @id @default(uuid()) @db.Uuid
+  receiptLineId String              @map("receipt_line_id") @db.Uuid
+  quantity      Int
+  refundJpy     BigInt?             @map("refund_jpy") @db.BigInt
+  reason        String
+  returnedDate  DateTime            @map("returned_date") @db.Date
+  operationId   String              @unique @map("operation_id") @db.Uuid
+  requestId     String              @unique @map("request_id") @db.Uuid
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  receiptLine   PurchaseReceiptLine @relation(fields: [receiptLineId], references: [id], onDelete: Restrict)
+
+  @@map("supplier_return")
+}
+
+model MoneyAccount {
+  id                String       @id @default(uuid()) @db.Uuid
+  workspaceId       String       @map("workspace_id") @db.Uuid
+  businessUnitId    String       @map("business_unit_id") @db.Uuid
+  reportingEntityId String       @map("reporting_entity_id") @db.Uuid
+  name              String
+  accountKind       String       @default("STANDARD") @map("account_kind")
+  openingDate       DateTime     @map("opening_date") @db.Date
+  openingBalanceJpy BigInt       @map("opening_balance_jpy") @db.BigInt
+  revision          Int          @default(0)
+  active            Boolean      @default(true)
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  entries           MoneyEntry[]
+
+  @@index([workspaceId, businessUnitId])
+  @@map("money_account")
+}
+
+model MoneyTransaction {
+  id                     String                      @id @default(uuid()) @db.Uuid
+  workspaceId            String                      @map("workspace_id") @db.Uuid
+  businessUnitId         String                      @map("business_unit_id") @db.Uuid
+  reportingEntityId      String                      @map("reporting_entity_id") @db.Uuid
+  date                   DateTime                    @db.Date
+  kind                   String
+  amountJpy              BigInt                      @map("amount_jpy") @db.BigInt
+  feeJpy                 BigInt                      @default(0) @map("fee_jpy") @db.BigInt
+  sourceId               String?                     @map("source_id") @db.Uuid
+  sourceSnapshot         Json?                       @map("source_snapshot")
+  categoryId             String?                     @map("category_id") @db.Uuid
+  memo                   String?
+  reversesId             String?                     @unique @map("reverses_id") @db.Uuid
+  reverses               MoneyTransaction?           @relation("money_reversal", fields: [reversesId], references: [id], onDelete: Restrict)
+  reversedBy             MoneyTransaction?           @relation("money_reversal")
+  requestId              String                      @unique @map("request_id") @db.Uuid
+  createdAt              DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  ownerAllocations       OwnerSettlementAllocation[] @relation("owner_settlement")
+  ownerSourceAllocations OwnerSettlementAllocation[] @relation("owner_source")
+  entries                MoneyEntry[]
+
+  @@index([workspaceId, businessUnitId, date])
+  @@index([kind, sourceId])
+  @@map("money_transaction")
+}
+
+model MoneyEntry {
+  id            String           @id @default(uuid()) @db.Uuid
+  transactionId String           @map("transaction_id") @db.Uuid
+  accountId     String           @map("account_id") @db.Uuid
+  amountJpy     BigInt           @map("amount_jpy") @db.BigInt
+  purpose       String           @default("PRINCIPAL")
+  transaction   MoneyTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  account       MoneyAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([transactionId, accountId, purpose], map: "money_entry_unique")
+  @@index([accountId, transactionId])
+  @@map("money_entry")
+}
+
+model SupplyItem {
+  id             String                 @id @default(uuid()) @db.Uuid
+  workspaceId    String                 @map("workspace_id") @db.Uuid
+  businessUnitId String                 @map("business_unit_id") @db.Uuid
+  name           String
+  memo           String?
+  kind           String
+  unit           String                 @default("点")
+  active         Boolean                @default(true)
+  revision       Int                    @default(0)
+  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  purchases      PurchaseDocumentLine[]
+  skuSettings    SkuSupplySetting[]
+  uses           MaterialUse[]
+
+  @@index([workspaceId, businessUnitId, kind])
+  @@map("supply_item")
+}
+
+model SkuSupplySetting {
+  id           String     @id @default(uuid()) @db.Uuid
+  skuId        String     @map("sku_id") @db.Uuid
+  supplyItemId String     @map("supply_item_id") @db.Uuid
+  purpose      String
+  quantity     Decimal    @db.Decimal(20, 8)
+  unitCostJpy  Decimal?   @map("unit_cost_jpy") @db.Decimal(24, 8)
+  sku          SalesSku   @relation(fields: [skuId], references: [id], onDelete: Restrict)
+  supplyItem   SupplyItem @relation(fields: [supplyItemId], references: [id], onDelete: Restrict)
+
+  @@unique([skuId, supplyItemId, purpose])
+  @@map("sku_supply_setting")
+}
+
+model MaterialUse {
+  id                String       @id @default(uuid()) @db.Uuid
+  workspaceId       String       @map("workspace_id") @db.Uuid
+  businessUnitId    String       @map("business_unit_id") @db.Uuid
+  reportingEntityId String       @map("reporting_entity_id") @db.Uuid
+  saleId            String       @map("sale_id") @db.Uuid
+  supplyItemId      String       @map("supply_item_id") @db.Uuid
+  supplyName        String       @map("supply_name")
+  purchaseLineId    String?      @map("purchase_line_id") @db.Uuid
+  purpose           String
+  quantity          Decimal      @db.Decimal(20, 8)
+  unitCostJpy       Decimal?     @map("unit_cost_jpy") @db.Decimal(24, 8)
+  costJpy           BigInt?      @map("cost_jpy") @db.BigInt
+  costFinal         Boolean      @map("cost_final")
+  date              DateTime     @db.Date
+  reason            String?
+  supersedesId      String?      @unique @map("supersedes_id") @db.Uuid
+  supersedes        MaterialUse? @relation("material_use_revision", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy      MaterialUse? @relation("material_use_revision")
+  requestId         String       @map("request_id") @db.Uuid
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  supplyItem        SupplyItem   @relation(fields: [supplyItemId], references: [id], onDelete: Restrict)
+  sale              SalesOrder   @relation(fields: [saleId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, businessUnitId, date])
+  @@map("material_use")
+}
+
+model MoneyCategory {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @map("workspace_id") @db.Uuid
+  name        String
+  kind        String
+  active      Boolean       @default(true)
+  revision    Int           @default(0)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  records     OtherRecord[]
+
+  @@unique([workspaceId, name, kind])
+  @@map("money_category")
+}
+
+model OtherRecord {
+  id                String        @id @default(uuid()) @db.Uuid
+  workspaceId       String        @map("workspace_id") @db.Uuid
+  businessUnitId    String        @map("business_unit_id") @db.Uuid
+  reportingEntityId String        @map("reporting_entity_id") @db.Uuid
+  date              DateTime      @db.Date
+  kind              String
+  categoryId        String        @map("category_id") @db.Uuid
+  categoryName      String        @map("category_name")
+  amountJpy         BigInt        @map("amount_jpy") @db.BigInt
+  sourceSaleId      String?       @map("source_sale_id") @db.Uuid
+  sourcePurchaseId  String?       @map("source_purchase_id") @db.Uuid
+  counterparty      String?
+  memo              String?
+  reversesId        String?       @unique @map("reverses_id") @db.Uuid
+  reverses          OtherRecord?  @relation("other_record_reversal", fields: [reversesId], references: [id], onDelete: Restrict)
+  reversedBy        OtherRecord?  @relation("other_record_reversal")
+  requestId         String        @unique @map("request_id") @db.Uuid
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  category          MoneyCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, businessUnitId, date])
+  @@map("other_record")
+}
+
+model OwnerSettlementAllocation {
+  id                  String           @id @default(uuid()) @db.Uuid
+  settlementId        String           @map("settlement_id") @db.Uuid
+  sourceTransactionId String           @map("source_transaction_id") @db.Uuid
+  amountJpy           BigInt           @map("amount_jpy") @db.BigInt
+  settlement          MoneyTransaction @relation("owner_settlement", fields: [settlementId], references: [id], onDelete: Restrict)
+  source              MoneyTransaction @relation("owner_source", fields: [sourceTransactionId], references: [id], onDelete: Restrict)
+
+  @@unique([settlementId, sourceTransactionId])
+  @@index([sourceTransactionId])
+  @@map("owner_settlement_allocation")
 }

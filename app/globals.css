@@ -106,7 +106,7 @@ h2 {
   font-size: 0.9rem;
   font-weight: 700;
 }
-input,
+input:not([type="checkbox"]):not([type="radio"]),
 select,
 textarea {
   width: 100%;
@@ -115,6 +115,29 @@ textarea {
   background: white;
   color: var(--ink);
   padding: 10px 12px;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  flex-shrink: 0;
+  accent-color: var(--brand);
+}
+label:has(> input[type="checkbox"]),
+label:has(> input[type="radio"]) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  cursor: pointer;
+}
+input,
+select,
+textarea,
+[tabindex] {
+  scroll-margin-block: 120px;
 }
 textarea {
   min-height: 88px;
@@ -424,7 +447,8 @@ th {
 .assignment-form {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 .assignment-form select {
   min-width: 180px;
@@ -445,6 +469,51 @@ th {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+.button-row,
+.filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.filter-tabs {
+  margin-bottom: 20px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+.filter-tabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.filter-tabs a.current {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: white;
+}
+.filter-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 20px;
+}
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+.checkbox-row input {
+  width: 20px;
+  min-height: 20px;
 }
 .two-column {
   display: grid;
@@ -759,5 +828,108 @@ dt {
   }
   .mobile-nav .disabled {
     opacity: 0.42;
+  }
+}
+:root {
+  scroll-padding-bottom: 110px;
+}
+[hidden] {
+  display: none !important;
+}
+.mobile-records {
+  display: none;
+}
+.context-selector {
+  flex: 1;
+  min-width: 0;
+}
+.context-selector summary {
+  padding: 10px 0;
+  min-height: 44px;
+  cursor: pointer;
+}
+.picker-results {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.picker-option {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 4px;
+  text-align: left;
+  padding: 12px;
+  border: 1px solid #d4ddd6;
+  border-radius: 10px;
+  background: white;
+  min-height: 56px;
+}
+.picker-option:disabled {
+  opacity: 0.5;
+}
+.form-stack {
+  display: grid;
+  gap: 18px;
+}
+.purchase-action-panel,
+.purchase-status-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+.purchase-action-panel fieldset {
+  min-width: 0;
+}
+.cost-field {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #dce3de;
+}
+.field-error {
+  color: #a52a2a;
+  font-size: 14px;
+}
+input,
+select,
+textarea {
+  font-size: 16px;
+  scroll-margin-bottom: 120px;
+}
+button,
+summary,
+.button {
+  min-height: 44px;
+}
+.filter-tabs {
+  flex-wrap: wrap;
+}
+@media (max-width: 780px) {
+  .desktop-records {
+    display: none;
+  }
+  .mobile-records {
+    display: grid;
+    gap: 12px;
+  }
+  .context-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .context-form {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
+  .page {
+    padding-bottom: 100px;
+  }
+  .metric strong {
+    overflow-wrap: anywhere;
   }
 }

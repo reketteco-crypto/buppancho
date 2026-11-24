@@ -1,3 +1,4 @@
+import { MasterForm } from "@/components/forms/master-form";
 import { requireSession } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { createOperatorAction, updateOperatorAction } from "@/app/actions";
@@ -20,7 +21,7 @@ export default async function OperatorsPage() {
           </p>
         </div>
       </header>
-      <form
+      <MasterForm
         action={createOperatorAction}
         className="card context-form"
         style={{ marginBottom: 20 }}
@@ -30,10 +31,11 @@ export default async function OperatorsPage() {
           <input name="displayName" maxLength={50} required />
         </label>
         <button className="button">入力者を追加</button>
-      </form>
+      </MasterForm>
       <div className="stack">
         {rows.map((row) => (
-          <form action={updateOperatorAction} className="card" key={row.id}>
+          <MasterForm action={updateOperatorAction} className="card" key={row.id}>
+            <input type="hidden" name="revision" value={row.revision} />
             <input type="hidden" name="id" value={row.id} />
             <div className="context-form">
               <label className="field">
@@ -58,7 +60,7 @@ export default async function OperatorsPage() {
               </div>
               <button className="button secondary">保存</button>
             </div>
-          </form>
+          </MasterForm>
         ))}
       </div>
       <p className="notice" style={{ marginTop: 20 }}>

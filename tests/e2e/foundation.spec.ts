@@ -48,7 +48,7 @@ test("generic initial setup creates multiple departments and copies the next yea
   await page.getByLabel("販売部門名").nth(2).fill("国内仕入");
   await page.getByRole("button", { name: "内容を確認して初期設定を完了" }).click();
 
-  await expect(page.getByRole("heading", { name: "在庫ダッシュボード" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ホーム" })).toBeVisible();
   await page.goto("/settings/fiscal-years");
   await expect(page.getByRole("heading", { name: "2026年度" })).toBeVisible();
   await expect(page.getByRole("row", { name: /国内仕入 DOMESTIC/ })).toBeVisible();
@@ -66,10 +66,10 @@ test("phase 1 navigation is available after login", async ({ page }) => {
   await page.getByLabel("ユーザー名").fill(process.env.E2E_LOGIN_NAME!);
   await page.getByLabel("パスワード").fill(process.env.E2E_PASSWORD!);
   await page.getByRole("button", { name: "ログイン" }).click();
-  await expect(page.getByRole("heading", { name: "在庫ダッシュボード" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "登録", exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("link", { name: "商品・在庫", exact: true }).first()).toBeVisible();
-  await page.getByRole("link", { name: "商品・在庫", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "ホーム" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "仕入れ", exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "在庫", exact: true }).first()).toBeVisible();
+  await page.getByRole("link", { name: "在庫", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "商品・在庫" })).toBeVisible();
 
   await page.goto("/settings");
