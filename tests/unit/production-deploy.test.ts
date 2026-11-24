@@ -115,8 +115,8 @@ describe.skipIf(process.platform !== "win32")(
       expect(result.status).not.toBe(0);
       expect(result.calls.at(-1)).toContain("build");
     });
-    it("does not restart services while an operation is unresolved", () => {
-      const result = scenario({ mode: "Start", pending: true });
+    it.each(["Start", "Bootstrap"])("does not run %s while an operation is unresolved", (mode) => {
+      const result = scenario({ mode, pending: true });
       expect(result.status).not.toBe(0);
       expect(result.calls).toHaveLength(0);
     });

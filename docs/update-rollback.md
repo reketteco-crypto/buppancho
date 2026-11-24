@@ -55,7 +55,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy/enable-lan.ps
 
 `production.ps1` の `-Mode Status` でDB・適用履歴・初期設定・バックアップ状態を確認する。`Start` は適用済みマイグレーションを照合して起動し、DB更新を実行しない。`Stop` はアプリとHTTPS入口を止める。
 
-Windowsサインイン後の自動起動には `start-on-login.ps1 -EnvFile <本番環境ファイル>` のショートカットをユーザーのスタートアップへ配置する。Docker Desktopの起動を待ってから本番だけを起動する。結果は本番フォルダーの `startup.log`。PC停止・スリープ中と、再起動からWindowsサインインまでの利用は保証しない。
+Windowsサインイン後は、Docker Desktopの「Settings → General → Start Docker Desktop when you sign in to your computer」でDockerを起動し、常駐コンテナーのrestart設定で復帰する。未完了マーカーが残る場合は入口が503で入力を止める。起動後は `-Mode Start` で適用履歴を照合できる。
+
+運用管理者が独立した起動タスクを用意する場合は `start-on-login.ps1 -EnvFile <本番環境ファイル>` を使える。ユーザー別・全ユーザー用のDocker Desktopの配置に対応し、Dockerの起動を待ってから本番だけを起動する。結果は本番フォルダーの `startup.log`。PC停止・スリープ中と、再起動からWindowsサインインまでの利用は保証しない。設定の有効化と実際のWindows再起動後の受入を分ける。
 
 更新は `-Mode Update -Release <検証済みGit SHA>`。ビルド後にアプリ・入口・定期バックアップを停止し、更新前バックアップ・複製、マイグレーション、起動の順で実行する。成功時に配備SHAを環境ファイルへ記録する。
 

@@ -1,4 +1,5 @@
 import { Client } from "pg";
+import { canonicalConstraintDefinition } from "../../lib/operations/constraint-definition";
 
 function configuredUrl(value: string | undefined) {
   try {
@@ -54,10 +55,21 @@ try {
         )
       ).rows;
       snapshot.constraints = (
-        await client.query(
-          "SELECT c.conrelid::regclass::text AS table_name,c.conname,pg_get_constraintdef(c.oid) AS definition FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' ORDER BY 1,2",
+        await client.query<{
+          table_name: string;
+          conname: string;
+          definition: string;
+          validated: boolean;
+          deferrable: boolean;
+          deferred: boolean;
+          enforced: boolean;
+        }>(
+          "SELECT c.conrelid::regclass::text AS table_name,c.conname,pg_get_constraintdef(c.oid) AS definition,c.convalidated AS validated,c.condeferrable AS deferrable,c.condeferred AS deferred,c.conenforced AS enforced FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' ORDER BY 1,2",
         )
-      ).rows;
+      ).rows.map((constraint) => ({
+        ...constraint,
+        definition: canonicalConstraintDefinition(constraint.definition),
+      }));
       snapshot.triggers = (
         await client.query(
           "SELECT t.tgrelid::regclass::text AS table_name,t.tgname,pg_get_triggerdef(t.oid) AS definition FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND NOT t.tgisinternal ORDER BY 1,2",

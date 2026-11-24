@@ -72,7 +72,7 @@ foreach ($productionName in $productionEnvironmentNames) {
 }
 $productionPreviousRestore = $env:RESTORE_DATABASE
 $productionPendingFile = Join-Path $productionSettings.BACKUP_STATUS_DIR 'operation.pending'
-if ($Mode -in @('Initialize', 'Update', 'VerifyRestore', 'Start') -and (Test-Path -LiteralPath $productionPendingFile)) {
+if ($Mode -in @('Initialize', 'Update', 'VerifyRestore', 'Start', 'Bootstrap') -and (Test-Path -LiteralPath $productionPendingFile)) {
   throw '前回の運用操作が未完了です。入力を再開せず、記録とDBを確認してください。'
 }
 function Start-ProductionOperation {

@@ -2,8 +2,12 @@
 $ErrorActionPreference = 'Stop'
 $productionLog = Join-Path (Split-Path -Parent $EnvFile) 'startup.log'
 try {
-  $productionDocker = Join-Path $env:ProgramFiles 'Docker/Docker/Docker Desktop.exe'
   if (!(Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue)) {
+    $productionDocker = @(
+      (Join-Path $env:LOCALAPPDATA 'Programs/DockerDesktop/frontend/Docker Desktop.exe'),
+      (Join-Path $env:ProgramFiles 'Docker/Docker/Docker Desktop.exe')
+    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    if (!$productionDocker) { throw 'Docker Desktopのインストール先を確認してください。' }
     Start-Process -FilePath $productionDocker -WindowStyle Hidden
   }
   $productionReady = $false
