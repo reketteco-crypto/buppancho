@@ -1,10 +1,17 @@
 node_modules
 .next
+.next-*
+.tmp
+.pnpm-store
 .git
 .env*
 !.env.example
 backups
+backups-mirror
+backup-status
 secrets
 coverage
 playwright-report
 test-results
+*.log
+tsconfig.tsbuildinfo

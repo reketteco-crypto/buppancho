@@ -1,0 +1,19 @@
+{
+	admin off
+	auto_https disable_redirects
+	skip_install_trust
+	default_sni {$LAN_ADDRESS}
+	servers {
+		protocols h1 h2
+	}
+}
+
+https://{$LAN_ADDRESS}:3443 {
+	tls internal
+	@maintenance file {
+		root /var/run/buppancho-backup
+		try_files operation.pending
+	}
+	respond @maintenance "更新・復元確認中です。運用状態の確認が終わるまで入力をお待ちください。" 503
+	reverse_proxy app:3000
+}

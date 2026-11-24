@@ -10,19 +10,22 @@ jobs:
       postgres:
         image: postgres:18.4-bookworm
         env:
-          POSTGRES_DB: buppancho_test
-          POSTGRES_USER: buppancho
+          POSTGRES_DB: buppancho_redesign_20261110_test
+          POSTGRES_USER: buppancho_test
           POSTGRES_PASSWORD: test-only-password
-        ports: ["5432:5432"]
+        ports: ["54320:5432"]
         options: >-
-          --health-cmd "pg_isready -U buppancho -d buppancho_test"
+          --health-cmd "pg_isready -U buppancho_test -d buppancho_redesign_20261110_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      DATABASE_URL: postgresql://buppancho:test-only-password@localhost:5432/buppancho_test
+      DATABASE_URL: postgresql://buppancho_test:test-only-password@127.0.0.1:54320/buppancho_redesign_20261110_test
       POSTGRES_PASSWORD: test-only-password
       APP_URL: http://127.0.0.1:3000
       ALLOWED_ORIGINS: 127.0.0.1:3000
-      TEST_DATABASE_URL: postgresql://buppancho:test-only-password@localhost:5432/buppancho_test
+      TEST_DATABASE_URL: postgresql://buppancho_test:test-only-password@127.0.0.1:54320/buppancho_redesign_20261110_test
+      BUPPANCHO_TEST_POSTGRES_PORT: "54320"
+      BUPPANCHO_REDESIGN_UI_PORT: "3112"
+      BUPPANCHO_REDESIGN_ISOLATED_BUILD: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -30,12 +33,11 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 24.18.0, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level=high
+      - run: pnpm db:generate
       - run: pnpm db:deploy
-      - run: pnpm format:check
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+      # This service DB is new for each job. Never seed an existing/local DB.
+      - run: pnpm exec tsx scripts/test/seed-e2e.ts
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
+      - run: pnpm test:redesign:ui
       - run: docker compose config --quiet

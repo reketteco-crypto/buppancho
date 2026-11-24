@@ -1,0 +1,162 @@
+name: buppancho-prod
+
+x-database: &database
+  DATABASE_URL: postgresql://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:?}
+
+services:
+  postgres:
+    image: postgres:18.4-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      TZ: UTC
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+
+  migrate:
+    image: buppancho-prod-tools:${RELEASE_SHA:?}
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+      target: tools
+    environment:
+      <<: *database
+      RESTORED_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${RESTORE_DATABASE:-not_selected}
+    command: ["pnpm", "db:deploy"]
+    networks: [internal]
+    profiles: [tools]
+
+  app:
+    image: buppancho-prod-app:${RELEASE_SHA:?}
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+      target: runner
+      args:
+        ALLOWED_ORIGINS: ${LAN_ADDRESS:?}:3443
+        RELEASE_SHA: ${RELEASE_SHA}
+    restart: unless-stopped
+    environment:
+      <<: *database
+      APP_URL: https://${LAN_ADDRESS}:3443
+      ALLOWED_ORIGINS: ${LAN_ADDRESS}:3443
+      BACKUP_STATUS_FILE: /var/run/buppancho-backup/status.json
+    volumes:
+      - type: bind
+        source: ${BACKUP_STATUS_DIR:?}
+        target: /var/run/buppancho-backup
+        read_only: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+
+  proxy:
+    image: ${CADDY_IMAGE:?}
+    restart: unless-stopped
+    environment:
+      LAN_ADDRESS: ${LAN_ADDRESS}
+    ports:
+      - "${LAN_ADDRESS}:3443:3443/tcp"
+    volumes:
+      - ./docker/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - type: bind
+        source: ${BACKUP_STATUS_DIR}
+        target: /var/run/buppancho-backup
+        read_only: true
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [internal, edge]
+
+  # Read-only HTTP smoke check against a restored DB. No host/LAN ports.
+  restored-app:
+    image: buppancho-prod-app:${RELEASE_SHA:?}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${RESTORE_DATABASE:-not_selected}
+      APP_URL: https://localhost:3444
+      ALLOWED_ORIGINS: localhost:3444
+      BACKUP_STATUS_FILE: /not-mounted/status.json
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+    profiles: [tools]
+
+  backup:
+    image: buppancho-prod-backup:${RELEASE_SHA:?}
+    build:
+      context: .
+      dockerfile: docker/backup/Dockerfile
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_ROOT: /backups
+      BACKUP_STATUS_FILE: /status/status.json
+      BACKUP_IDENTITY_FILE: /run/secrets/backup-identity
+      BACKUP_MIRROR_ROOT: /mirror
+      BACKUP_INTERVAL_SECONDS: 86400
+      BACKUP_RETRY_SECONDS: 300
+      TARGET_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${RESTORE_DATABASE:-not_selected}
+      TARGET_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - type: bind
+        source: ${BACKUP_DIR:?}
+        target: /backups
+      - type: bind
+        source: ${BACKUP_STATUS_DIR}
+        target: /status
+      - type: bind
+        source: ${BACKUP_MIRROR_DIR:?}
+        target: /mirror
+    secrets: [backup-identity]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+    internal: true
+  edge:
+
+secrets:
+  backup-identity:
+    file: ${BACKUP_IDENTITY_FILE:?}
