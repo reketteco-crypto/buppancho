@@ -51,7 +51,7 @@ GitHub CIも新しい固定専用DB・新規ジョブだけのfixture作成・�
 
 ### 修正版の配備・復元・復帰確認
 
-配備版は `5468d9fb98492e51ec405d63bafb4e16eb45f758`。2026-11-25 22:35（日本時間）時点の確認を以下に記録する。
+配備版は `5468d9fb98492e51ec405d63bafb4e16eb45f758`、同じSHAへ公開したタグは [v0.1.0](https://github.com/reketteco-crypto/buppancho/releases/tag/v0.1.0)。2026-11-25 22:35（日本時間）時点の確認を以下に記録する。
 
 | 確認                                                                                      | 結果                                                                                                                                     |
 | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
@@ -68,6 +68,8 @@ GitHub CIも新しい固定専用DB・新規ジョブだけのfixture作成・�
 | 本人初期設定                                                                              | 本番ログイン0件、初期設定完了0件。本人が対話式bootstrapで新しいログインを作成する段階。実取引・開始在庫・残高・実CSVは未登録             |
 
 ログは `.tmp/release-update-fixed.log`、`release-restore-fixed.log`、`release-restore-verified-recovery.log`、`release-restore-nonempty-refusal.log`、`release-restore-after-refusal.log`、`release-start-recovery.log`、`release-browser-check-final.log`、`release-status-final.log`。PC・390px幅の実画像は `.tmp/release-production-login-desktop.png`、`release-production-login-mobile.png`。実Android端末の受入とは区別する。
+
+本番コンテナー内では、ランダム値によるパスワードのハッシュ化と検証にも成功した。値・ハッシュは出力・保存せず、DB変更なし（`.tmp/release-production-password-module.log`）。実際の本人ログイン成功は別途確認する。
 
 この最終記録の更新は文書のみで、format・参照先を確認する。業務コードの試験結果は上記の配備SHAの実行記録を参照する。
 
